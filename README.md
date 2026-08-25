@@ -32,29 +32,38 @@ Library* de Mister Horse (dont le plan gratuit plafonne à 500 éléments). Une
 seule page : le **gestionnaire de médias** s'ouvre directement ; le
 téléchargeur est derrière le bouton **⬇** en haut à droite.
 
-**Gestionnaire (`library.js`)** — navigateur de dossiers local, sans limite :
+**Gestionnaire (`library.js`)** — calqué sur l'ergonomie du panneau Animation
+Composer (arborescence à gauche, grille à droite), sans limite d'éléments :
 
-- **⬇ drag-and-drop** : on glisse une vignette directement sur la timeline (ou
-  le chutier). Drag natif CEP via `event.dataTransfer.setData(
-  'com.adobe.cep.dnd.file.0', chemin)` — c'est Premiere qui place le clip, exactement
-  comme Mister Horse. **Double-clic** = import direct en secours (au cas où le
-  DnD est bloqué sur une version de Premiere ; régression connue côté Adobe,
-  [issue #483](https://github.com/Adobe-CEP/CEP-Resources/issues/483)).
-- `＋` ajoute un dossier racine (mémorisé, on bascule avec la liste déroulante),
-  scanné récursivement (12 niveaux). Navigation par **fil d'Ariane** : on entre
-  dans les sous-dossiers, `◀` remonte.
-- Scan mis en cache dans `%LOCALAPPDATA%\Mudkit\lib-cache\idx-*.json` :
-  réouverture instantanée, `⟳` pour rescanner. Recherche plein-dossier,
-  filtres son / vidéo / image.
-- Aperçus générés à la demande par le ffmpeg de `bin/` et mis en cache :
-  forme d'onde (audio, lue au **survol**), poster (vidéo), et un **sprite de
-  24 images** que la souris scrube au survol (clips ≤ 45 s : `fps`+`tile` ;
-  au-delà : 24 seeks `-ss` avant `-i` puis `hstack`, pour ne pas décoder tout
-  le fichier). Clic ouvre la visionneuse plein panneau (image / vidéo).
+- **Arborescence persistante à gauche.** Chaque dossier ajouté avec `＋` devient
+  une **catégorie de premier niveau** (équivalent d'un « pack ») ; plusieurs
+  dossiers peuvent être montés en même temps. Sélectionner un nœud affiche
+  **tout son sous-arbre**, pas seulement ses enfants directs.
+- **Glisser-déposer** vers la timeline : `event.dataTransfer.setData(
+  'com.adobe.cep.dnd.file.0', chemin)` sur `dragstart`. Double-clic = import
+  direct en secours ([régression Adobe connue](https://github.com/Adobe-CEP/CEP-Resources/issues/483)).
+- **Favoris ★** sur chaque vignette (persistés) + bouton ★ en haut de la
+  barre latérale pour ne montrer que les favoris.
+- **Slider de taille des vignettes** en bas à gauche (pilote `--tw`), et
+  **splitter** redimensionnable entre l'arbre et la grille.
+- Recherche : elle traverse **toutes** les racines montées, en ignorant la
+  sélection courante.
+- Scan récursif (12 niveaux) mis en cache par racine dans
+  `%LOCALAPPDATA%\Mudkit\lib-cache\idx-*.json` — réouverture instantanée,
+  `⟳` rescanne la racine sélectionnée (ou toutes si rien n'est sélectionné).
+- Aperçus ffmpeg générés à la demande et cachés : forme d'onde (audio, lue au
+  **survol**), poster (vidéo), et **sprite de 24 images** scrubé à la souris
+  au survol (clips ≤ 45 s : `fps`+`tile` ; au-delà : 24 seeks `-ss` avant `-i`
+  puis `hstack`, pour ne pas décoder tout le fichier). Clic = visionneuse.
 - Les formats que Chromium ne lit pas (aif, wma, tiff, heic…) sont convertis à
   la volée pour l'aperçu ; le fichier d'origine reste celui qui est glissé.
-- Le manifest ajoute `--allow-file-access-from-files` : sans ça, Chromium
-  bloque le chargement des vignettes et médias `file://`.
+- Le manifest ajoute `--allow-file-access-from-files` : sans ça Chromium bloque
+  les vignettes et médias `file://`.
+
+⚠️ **Piège de concurrence** : `scan()` ne doit **pas** incrémenter le token
+global. Monter deux racines en parallèle ferait avorter le premier scan et
+`refreshAfterMount()` ne serait jamais appelé (panneau figé). Le token n'avance
+que dans `invalidate()`, sur rescan/démontage.
 
 **Téléchargeur (overlay ⬇)** — colle un lien, téléchargé par le moteur Mudkit
 (`premiere_dl.py`), converti en H.264/AAC si Premiere ne lit pas le codec, puis

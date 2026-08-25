@@ -1,13 +1,14 @@
-/* Gestionnaire de medias local du panneau Mudkit -- pense pour remplacer la
-   User Library de Mister Horse (plan gratuit plafonne a 500 items).
+/* Gestionnaire de medias local du panneau Mudkit.
 
-   Fonctionne comme un navigateur de dossiers : on pointe un dossier racine,
-   il est scanne recursivement (Node fs) et mis en cache, on descend dans les
-   sous-dossiers (fil d'Ariane), on cherche, on previsualise au survol (forme
-   d'onde audio, poster + sprite scrubable pour la video, vignette image), et
-   on GLISSE l'item sur la timeline Premiere (drag natif CEP via la cle
-   com.adobe.cep.dnd.file.0) ; double-clic = import direct en secours.
-   Rien n'appelle de serveur : aucune limite d'elements.
+   Remplace la User Library de Mister Horse (plan gratuit plafonne a 500 items)
+   et en reprend l'ergonomie : arborescence de dossiers persistante a gauche,
+   grille de vignettes a droite, favoris, slider de taille, splitter, et
+   glisser-deposer natif vers la timeline Premiere.
+
+   Plusieurs dossiers racine peuvent etre montes en meme temps : chacun devient
+   une categorie de premier niveau dans l'arbre (equivalent d'un "pack").
+
+   Aucune limite d'elements : tout est lu en local, rien n'appelle de serveur.
    Volontairement en ASCII (les accents dans ce panneau = ennuis). */
 "use strict";
 
@@ -19,76 +20,71 @@ var nodeReq = (window.cep_node && window.cep_node.require)
 
 var fs, path, os, crypto, spawn;
 if (nodeReq) {
-  fs = nodeReq("fs");
-  path = nodeReq("path");
-  os = nodeReq("os");
-  crypto = nodeReq("crypto");
-  spawn = nodeReq("child_process").spawn;
+  fs = nodeReq("fs"); path = nodeReq("path"); os = nodeReq("os");
+  crypto = nodeReq("crypto"); spawn = nodeReq("child_process").spawn;
 }
 
 var MUDKIT = "C:\\Users\\Rayan\\Mudkit";
 var FFMPEG = MUDKIT + "\\bin\\ffmpeg.exe";
 var FFPROBE = MUDKIT + "\\bin\\ffprobe.exe";
-var LOCALAPP = (typeof process !== "undefined" && process.env &&
-                process.env.LOCALAPPDATA)
+var LOCALAPP = (typeof process !== "undefined" && process.env && process.env.LOCALAPPDATA)
   ? process.env.LOCALAPPDATA
   : (os ? os.homedir() + "\\AppData\\Local" : null);
 var CACHE = LOCALAPP ? LOCALAPP + "\\Mudkit\\lib-cache" : null;
 
 var MAX_DEPTH = 12;
-var PAGE = 120;
+var PAGE = 150;
 var SPRITE_N = 24;
-var HOVER_MS = 230;
-var SKIP_DIRS = { "node_modules": 1, "$recycle.bin": 1, ".git": 1,
-                  "system volume information": 1, ".cache": 1 };
+var HOVER_MS = 220;
+var SKIP_DIRS = { "node_modules":1, "$recycle.bin":1, ".git":1,
+                  "system volume information":1, ".cache":1 };
 
 var EXT = {};
-"mp3 wav flac m4a aac ogg opus aif aiff wma mka".split(" ")
-  .forEach(function (e) { EXT[e] = "audio"; });
-"mp4 mov mkv avi webm mxf m4v wmv mpg mpeg mts m2ts flv ts r3d braw"
-  .split(" ").forEach(function (e) { EXT[e] = "video"; });
-"jpg jpeg png gif webp bmp tif tiff avif heic heif svg tga dpx exr psd"
-  .split(" ").forEach(function (e) { EXT[e] = "image"; });
+"mp3 wav flac m4a aac ogg opus aif aiff wma mka".split(" ").forEach(function (e) { EXT[e] = "audio"; });
+"mp4 mov mkv avi webm mxf m4v wmv mpg mpeg mts m2ts flv ts r3d braw".split(" ").forEach(function (e) { EXT[e] = "video"; });
+"jpg jpeg png gif webp bmp tif tiff avif heic heif svg tga dpx exr psd".split(" ").forEach(function (e) { EXT[e] = "image"; });
 
-var WEB_AUDIO = { mp3: 1, wav: 1, flac: 1, m4a: 1, aac: 1, ogg: 1, opus: 1, mka: 1 };
-var WEB_IMAGE = { jpg: 1, jpeg: 1, png: 1, gif: 1, webp: 1, bmp: 1, svg: 1, avif: 1 };
-var WEB_VIDEO = { mp4: 1, m4v: 1, mov: 1, webm: 1 };
+var WEB_AUDIO = { mp3:1, wav:1, flac:1, m4a:1, aac:1, ogg:1, opus:1, mka:1 };
+var WEB_IMAGE = { jpg:1, jpeg:1, png:1, gif:1, webp:1, bmp:1, svg:1, avif:1 };
+var WEB_VIDEO = { mp4:1, m4v:1, mov:1, webm:1 };
 
-var GLYPH = { audio: "\u266A", video: "\u25B6", image: "\u25A3" };
-var SEP = "\u25B8";           // petit triangle du fil d'Ariane
-var CHECK = "\u2713";
+var GLYPH  = { audio:"\u266A", video:"\u25B6", image:"\u25A3" };
+var BADGE  = { audio:"\u25CF", video:"\u25B6", image:"\u25A0" };
+var CHEV   = "\u25B8";        // chevron de l'arbre (tourne en CSS)
+var FOLDER = "\u25A2";        // petit carre = dossier
+var CHECK  = "\u2713";
 
 /* --------------------------------- etat -------------------------------- */
 
-var roots = [];        // dossiers racine memorises
-var root = "";         // racine courante (absolu)
-var stack = [];        // segments de sous-dossiers dans la racine
-var all = [];          // tous les fichiers (recursif) : { p,n,e,k,sz,mt,rel }
-var meta = {};         // p -> { dur }
-var view = [];         // items affiches (apres filtre / niveau)
+var libs = [];          // [{ root, items:[...], meta:{} }]
+var all = [];           // concat des items, chacun avec .lib
+var favs = {};          // chemin -> 1
+var open = {};          // cle de noeud -> ouvert
+var sel = "";           // cle du noeud selectionne ("" = tout)
+var view = [];
 var rendered = 0;
-var kind = "all";
 var query = "";
+var favOnly = false;
 var action = "insert";
-var listView = false;
+var tileW = 116;
 var token = 0;
 
 var audio = new Audio();
 var playingTile = null;
 var hoverTimer = null;
 
-/* ------------------------------- helpers ------------------------------- */
+/* -------------------------------- helpers ------------------------------ */
 
 function $(s) { return document.querySelector(s); }
 function ls(k, d) { try { var v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 function md5(s) { return crypto.createHash("md5").update(s, "utf8").digest("hex"); }
 function ext(p) { var i = p.lastIndexOf("."); return i < 0 ? "" : p.slice(i + 1).toLowerCase(); }
-function mkdirp(p) { try { fs.mkdirSync(p, { recursive: true }); } catch (e) {} }
+function mkdirp(p) { try { fs.mkdirSync(p, { recursive:true }); } catch (e) {} }
+function base(p) { return p.replace(/[\\\/]+$/, "").split(/[\\\/]/).pop() || p; }
 
 function fileUrl(p) {
-  return "file:///" + encodeURI(p.replace(/\\/g, "/"))
-    .replace(/#/g, "%23").replace(/\?/g, "%3F");
+  return "file:///" + encodeURI(p.replace(/\\/g, "/")).replace(/#/g, "%23").replace(/\?/g, "%3F");
 }
 function human(n) {
   if (n < 1024) return n + " o";
@@ -103,8 +99,7 @@ function clock(s) {
   if (h) return h + ":" + ("0" + (m % 60)).slice(-2) + ":" + ("0" + (s % 60)).slice(-2);
   return m + ":" + ("0" + (s % 60)).slice(-2);
 }
-function say(msg, cls) { var el = $("#libstatus"); el.textContent = msg; el.className = cls || ""; }
-function curRel() { return stack.join("/"); }
+function say(msg, cls) { var el = $("#libstatus"); el.textContent = msg; el.className = "msg " + (cls || ""); }
 
 function evalScript(script) {
   return new Promise(function (resolve) {
@@ -113,12 +108,17 @@ function evalScript(script) {
   });
 }
 
-/* ------------------------- file d'attente ffmpeg ----------------------- */
+/* --------------------------- file d'attente ffmpeg --------------------- */
 
 var queue = [], busy = 0, MAXJOBS = 2;
 
-function run(exe, args, done) { queue.push({ exe: exe, args: args, done: done, tok: token }); pump(); }
+/* token = "epoque" globale. Elle n'avance QUE sur une invalidation volontaire
+   (rescan, demontage) -- surtout pas a chaque scan, sinon monter deux dossiers
+   en parallele ferait avorter le premier scan (et refreshAfterMount ne serait
+   jamais appele). Chaque scan compare l'epoque capturee au demarrage. */
+function invalidate() { token++; queue.length = 0; }
 
+function run(exe, args, done) { queue.push({ exe:exe, args:args, done:done, tok:token }); pump(); }
 function pump() {
   while (busy < MAXJOBS && queue.length) {
     var job = queue.shift();
@@ -126,12 +126,12 @@ function pump() {
     busy++;
     (function (j) {
       var out = "", err = "", p;
-      try { p = spawn(j.exe, j.args, { windowsHide: true }); }
+      try { p = spawn(j.exe, j.args, { windowsHide:true }); }
       catch (e) { busy--; j.done(String(e)); return pump(); }
       p.stdout.on("data", function (c) { out += c.toString(); });
       p.stderr.on("data", function (c) { err += c.toString(); });
       p.on("error", function (e) { busy--; j.done(String(e)); pump(); });
-      p.on("close", function (code) { busy--; j.done(code === 0 ? null : (err.trim() || ("code " + code)), out); pump(); });
+      p.on("close", function (c) { busy--; j.done(c === 0 ? null : (err.trim() || ("code " + c)), out); pump(); });
     })(job);
   }
 }
@@ -141,149 +141,179 @@ function pump() {
 function cachePath(sub, key, ex) { var d = CACHE + "\\" + sub; mkdirp(d); return d + "\\" + key + ex; }
 function keyOf(it) { return md5(it.p + "|" + it.mt + "|" + it.sz); }
 function indexFile(r) { mkdirp(CACHE); return CACHE + "\\idx-" + md5(r.toLowerCase()) + ".json"; }
-
 function loadIndex(r) {
   try { var o = JSON.parse(fs.readFileSync(indexFile(r), "utf8")); if (o && o.v === 1 && o.items) return o; }
   catch (e) {}
   return null;
 }
-function saveIndex(r) {
-  try { fs.writeFileSync(indexFile(r), JSON.stringify({ v: 1, root: r, ts: Date.now(), items: all, meta: meta })); }
-  catch (e) {}
+function saveIndex(lib) {
+  try {
+    fs.writeFileSync(indexFile(lib.root),
+      JSON.stringify({ v:1, root:lib.root, ts:Date.now(), items:lib.items, meta:lib.meta }));
+  } catch (e) {}
 }
 
-/* --------------------------------- scan -------------------------------- */
+/* ---------------------------------- scan ------------------------------- */
 
-function scan(r, after) {
-  var mine = ++token;
-  all = [];
-  var dirs = [{ d: r, rel: "", lvl: 0 }], seenDirs = 0;
-  queue.length = 0;
+function scan(lib, after) {
+  var mine = token;          // epoque capturee : PAS d'increment ici
+  lib.items = [];
+  var dirs = [{ d:lib.root, rel:"", lvl:0 }], seenDirs = 0;
 
   function step() {
     if (mine !== token) return;
     var budget = 60;
     while (dirs.length && budget-- > 0) {
-      var cur = dirs.shift();
-      seenDirs++;
+      var cur = dirs.shift(); seenDirs++;
       var ents;
-      try { ents = fs.readdirSync(cur.d, { withFileTypes: true }); } catch (e) { continue; }
+      try { ents = fs.readdirSync(cur.d, { withFileTypes:true }); } catch (e) { continue; }
       for (var i = 0; i < ents.length; i++) {
         var en = ents[i], nm = en.name;
         if (nm.charAt(0) === ".") continue;
         var full = cur.d + "\\" + nm;
         if (en.isDirectory()) {
           if (cur.lvl >= MAX_DEPTH || SKIP_DIRS[nm.toLowerCase()]) continue;
-          dirs.push({ d: full, rel: cur.rel ? cur.rel + "/" + nm : nm, lvl: cur.lvl + 1 });
+          dirs.push({ d:full, rel: cur.rel ? cur.rel + "/" + nm : nm, lvl:cur.lvl + 1 });
           continue;
         }
         var e = ext(nm), k = EXT[e];
         if (!k) continue;
         var st; try { st = fs.statSync(full); } catch (er) { continue; }
-        all.push({ p: full, n: nm, e: e, k: k, rel: cur.rel, sz: st.size, mt: st.mtimeMs | 0 });
+        lib.items.push({ p:full, n:nm, e:e, k:k, rel:cur.rel, sz:st.size, mt:st.mtimeMs | 0 });
       }
     }
-    say("Scan... " + all.length + " fichiers, " + seenDirs + " dossiers");
+    say("Scan... " + lib.items.length + " fichiers, " + seenDirs + " dossiers");
     if (dirs.length) return setTimeout(step, 0);
-    all.sort(function (a, b) { return a.rel === b.rel ? a.n.localeCompare(b.n) : a.rel.localeCompare(b.rel); });
-    saveIndex(r);
+    lib.items.sort(function (a, b) { return a.rel === b.rel ? a.n.localeCompare(b.n) : a.rel.localeCompare(b.rel); });
+    saveIndex(lib);
     after();
   }
   setTimeout(step, 0);
 }
 
-/* ------------------------- navigation / niveaux ------------------------ */
+/* ------------------------------- arborescence -------------------------- */
 
-/* Contenu du niveau courant : sous-dossiers (agreges) + fichiers directs. */
-function levelView() {
-  var rel = curRel();
-  var prefix = rel ? rel + "/" : "";
-  var folders = {}, files = [];
-  for (var i = 0; i < all.length; i++) {
-    var it = all[i];
-    if (kind !== "all" && it.k !== kind) continue;
-    if (it.rel === rel) { files.push(it); continue; }
-    if (it.rel.indexOf(prefix) === 0) {
-      var seg = it.rel.slice(prefix.length).split("/")[0];
-      folders[seg] = (folders[seg] || 0) + 1;
-    }
-  }
-  var fl = Object.keys(folders).sort(function (a, b) { return a.localeCompare(b); })
-    .map(function (n) { return { name: n, rel: prefix + n, count: folders[n] }; });
-  return { folders: fl, files: files };
+function rebuildAll() {
+  all = [];
+  libs.forEach(function (lib, li) {
+    lib.items.forEach(function (it) { it.lib = li; all.push(it); });
+  });
 }
 
-function searchView() {
-  var terms = query.toLowerCase().trim().split(/\s+/);
+function nodeKey(li, rel) { return rel ? li + ":" + rel : String(li); }
+
+function buildTree() {
+  return libs.map(function (lib, li) {
+    var rootNode = { name:base(lib.root), key:String(li), lib:li, rel:"", kids:{}, count:0, isRoot:true };
+    lib.items.forEach(function (it) {
+      rootNode.count++;
+      if (!it.rel) return;
+      var parts = it.rel.split("/"), cur = rootNode, acc = "";
+      for (var i = 0; i < parts.length; i++) {
+        acc = acc ? acc + "/" + parts[i] : parts[i];
+        if (!cur.kids[parts[i]]) cur.kids[parts[i]] = { name:parts[i], key:nodeKey(li, acc), lib:li, rel:acc, kids:{}, count:0 };
+        cur = cur.kids[parts[i]];
+        cur.count++;
+      }
+    });
+    return rootNode;
+  });
+}
+
+function renderTree() {
+  var t = $("#tree");
+  t.innerHTML = "";
+  if (!libs.length) return;
+  buildTree().forEach(function (n) { renderNode(t, n, 0); });
+}
+
+function renderNode(host, n, depth) {
+  var kids = Object.keys(n.kids).sort(function (a, b) { return a.localeCompare(b); });
+  var row = document.createElement("div");
+  row.className = "node" + (n.isRoot ? " root" : "") + (sel === n.key ? " sel" : "");
+  row.style.paddingLeft = (6 + depth * 11) + "px";
+  row.title = n.name + " - " + n.count + " elements";
+
+  var tw = document.createElement("span");
+  tw.className = "tw" + (kids.length ? (open[n.key] ? " open" : "") : " leaf");
+  tw.textContent = CHEV;
+  row.appendChild(tw);
+
+  var ic = document.createElement("span"); ic.className = "ic"; ic.textContent = FOLDER; row.appendChild(ic);
+  var nm = document.createElement("span"); nm.className = "nm"; nm.textContent = n.name; row.appendChild(nm);
+  var ct = document.createElement("span"); ct.className = "ct"; ct.textContent = n.count; row.appendChild(ct);
+
+  tw.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    if (!kids.length) return;
+    open[n.key] = !open[n.key];
+    lsSet("mudkit.lib.open", JSON.stringify(open));
+    renderTree();
+  });
+  row.addEventListener("click", function () {
+    sel = n.key;
+    if (kids.length && !open[n.key]) { open[n.key] = true; lsSet("mudkit.lib.open", JSON.stringify(open)); }
+    lsSet("mudkit.lib.sel", sel);
+    renderTree(); redraw();
+  });
+  host.appendChild(row);
+
+  if (kids.length && open[n.key])
+    kids.forEach(function (k) { renderNode(host, n.kids[k], depth + 1); });
+}
+
+/* Le noeud selectionne montre TOUT son sous-arbre (comme Mister Horse). */
+function inSelection(it) {
+  if (!sel) return true;
+  var c = sel.split(":"), li = +c[0], rel = c[1] || "";
+  if (it.lib !== li) return false;
+  if (!rel) return true;
+  return it.rel === rel || it.rel.indexOf(rel + "/") === 0;
+}
+
+function computeView() {
+  var terms = query.trim() ? query.toLowerCase().trim().split(/\s+/) : null;
   return all.filter(function (it) {
-    if (kind !== "all" && it.k !== kind) return false;
-    var hay = (it.rel + "/" + it.n).toLowerCase();
-    for (var i = 0; i < terms.length; i++) if (hay.indexOf(terms[i]) < 0) return false;
-    return true;
+    if (favOnly && !favs[it.p]) return false;
+    if (terms) {
+      var hay = (it.rel + "/" + it.n).toLowerCase();
+      for (var i = 0; i < terms.length; i++) if (hay.indexOf(terms[i]) < 0) return false;
+      return true;                       // la recherche ignore la selection
+    }
+    return inSelection(it);
   });
 }
 
-function crumb() {
-  var c = $("#crumb");
-  c.innerHTML = "";
-  var searching = !!query.trim();
-  $("#folders").classList.toggle("hidden", stack.length > 0 || searching);
-  $("#back").classList.toggle("hidden", stack.length === 0 && !searching);
-
-  if (searching) {
-    var s = document.createElement("span");
-    s.className = "seg last";
-    s.textContent = "Resultats \u00AB " + query.trim() + " \u00BB";
-    c.appendChild(s); return;
-  }
-  stack.forEach(function (seg, i) {
-    var sep = document.createElement("span"); sep.className = "sep"; sep.textContent = SEP;
-    c.appendChild(sep);
-    var el = document.createElement("span");
-    el.className = "seg" + (i === stack.length - 1 ? " last" : "");
-    el.textContent = seg;
-    if (i < stack.length - 1) el.addEventListener("click", function () { stack = stack.slice(0, i + 1); redraw(); });
-    c.appendChild(el);
-  });
-}
-
-/* ------------------------------- rendu --------------------------------- */
+/* --------------------------------- rendu ------------------------------- */
 
 var io = null;
 
 function redraw() {
   stopHoverPreview();
-  crumb();
   var g = $("#grid");
-  g.innerHTML = "";
-  rendered = 0;
+  g.innerHTML = ""; rendered = 0;
   if (io) io.disconnect();
-  io = new IntersectionObserver(onVisible, { root: g, rootMargin: "280px" });
+  io = new IntersectionObserver(onVisible, { root:g, rootMargin:"300px" });
 
-  var lv = query.trim() ? { folders: [], files: searchView() } : levelView();
+  view = computeView();
 
-  lv.folders.forEach(function (f) { g.appendChild(folderTile(f)); });
-
-  view = lv.files;
-  if (!lv.folders.length && !view.length) {
-    var d = document.createElement("div");
-    d.className = "empty";
-    d.innerHTML = root
-      ? "Rien ici." + (query.trim() ? "" : " Ce dossier ne contient pas de media reconnu.")
-      : "Aucun dossier.<br>Clique sur <b>+</b> en haut pour en ajouter un.";
+  if (!view.length) {
+    var d = document.createElement("div"); d.className = "empty";
+    d.innerHTML = !libs.length
+      ? "Aucun dossier monte.<br>Clique sur <b>+</b> en haut a droite pour en ajouter un."
+      : (favOnly ? "Aucun favori ici." : "Rien a afficher.");
     g.appendChild(d);
-  } else {
-    renderMore();
-  }
-  countLine(lv);
+  } else renderMore();
+
+  countLine();
 }
 
-function countLine(lv) {
-  if (query.trim()) { say(view.length + " resultats pour \u00AB " + query.trim() + " \u00BB", "ok"); return; }
-  var n = { audio: 0, video: 0, image: 0 };
+function countLine() {
+  var n = { audio:0, video:0, image:0 };
   view.forEach(function (i) { n[i.k]++; });
-  var f = lv.folders.length ? (lv.folders.length + " dossiers - ") : "";
-  say(f + view.length + " fichiers - " + n.audio + " sons - " + n.video + " videos - " + n.image + " images", "ok");
+  var where = query.trim() ? "\u00AB " + query.trim() + " \u00BB" : (sel ? "" : "tout");
+  say(view.length + " elements " + (where ? where + " " : "") +
+      "- " + n.audio + " sons, " + n.video + " videos, " + n.image + " images", "ok");
 }
 
 function renderMore() {
@@ -296,7 +326,7 @@ function renderMore() {
   rendered = end;
   if (rendered < view.length) {
     var more = document.createElement("div"); more.id = "more";
-    more.textContent = "..." + (view.length - rendered) + " de plus";
+    more.textContent = "... " + (view.length - rendered) + " de plus";
     g.appendChild(more); io.observe(more);
   }
   for (var j = 0; j < fresh.length; j++) io.observe(fresh[j]);
@@ -306,21 +336,8 @@ function onVisible(entries) {
   entries.forEach(function (en) {
     if (!en.isIntersecting) return;
     if (en.target.id === "more") { io.unobserve(en.target); return renderMore(); }
-    io.unobserve(en.target);
-    thumb(en.target);
+    io.unobserve(en.target); thumb(en.target);
   });
-}
-
-function folderTile(f) {
-  var el = document.createElement("div");
-  el.className = "folder";
-  el.innerHTML = '<span class="fi">\uD83D\uDCC1</span>';
-  var nm = document.createElement("span"); nm.className = "fn"; nm.textContent = f.name;
-  var ct = document.createElement("span"); ct.className = "fc"; ct.textContent = f.count;
-  el.appendChild(nm); el.appendChild(ct);
-  el.title = f.name + " - " + f.count + " elements";
-  el.addEventListener("click", function () { stack = f.rel.split("/"); redraw(); });
-  return el;
 }
 
 function tile(it) {
@@ -332,23 +349,37 @@ function tile(it) {
 
   var th = document.createElement("div"); th.className = "th";
   var gl = document.createElement("div"); gl.className = "glyph"; gl.textContent = GLYPH[it.k]; th.appendChild(gl);
-  var add = document.createElement("div"); add.className = "add"; add.textContent = "+"; add.title = "Importer dans Premiere"; th.appendChild(add);
+  var add = document.createElement("div"); add.className = "add"; add.textContent = "+"; add.title = "Importer"; th.appendChild(add);
   var dur = document.createElement("div"); dur.className = "dur"; th.appendChild(dur);
-  var nm = document.createElement("div"); nm.className = "nm"; nm.textContent = it.n;
-  el.appendChild(th); el.appendChild(nm);
 
-  // GLISSER vers Premiere (cle CEP) -- geste principal, comme Mister Horse.
+  var meta = document.createElement("div"); meta.className = "meta";
+  var bd = document.createElement("span"); bd.className = "badge " + it.k; bd.textContent = BADGE[it.k];
+  var nm = document.createElement("span"); nm.className = "nm"; nm.textContent = it.n.replace(/\.[^.]+$/, "");
+  var fv = document.createElement("span"); fv.className = "fav" + (favs[it.p] ? " on" : ""); fv.textContent = "\u2605";
+  fv.title = "Favori";
+  meta.appendChild(bd); meta.appendChild(nm); meta.appendChild(fv);
+
+  el.appendChild(th); el.appendChild(meta);
+
+  // Glisser vers la timeline : cle CEP officielle.
   el.addEventListener("dragstart", function (ev) {
     try {
       ev.dataTransfer.effectAllowed = "copy";
       ev.dataTransfer.setData("com.adobe.cep.dnd.file.0", it.p);
       ev.dataTransfer.setData("text/uri-list", fileUrl(it.p));
       ev.dataTransfer.setData("text/plain", it.p);
-      ev.dataTransfer.setDragImage(el, 40, 24);
+      ev.dataTransfer.setDragImage(el, 40, 22);
     } catch (e) {}
     say("Glisse \u00AB " + it.n + " \u00BB sur la timeline...");
   });
 
+  fv.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    if (favs[it.p]) delete favs[it.p]; else favs[it.p] = 1;
+    fv.classList.toggle("on", !!favs[it.p]);
+    lsSet("mudkit.lib.favs", JSON.stringify(Object.keys(favs)));
+    if (favOnly) redraw();
+  });
   add.addEventListener("click", function (ev) { ev.stopPropagation(); doImport(it); });
   el.addEventListener("click", function () { preview(el, it); });
   el.addEventListener("dblclick", function () { doImport(it); });
@@ -370,23 +401,29 @@ function tile(it) {
   return el;
 }
 
-/* ------------------------------ vignettes ------------------------------ */
+/* ------------------------------- vignettes ----------------------------- */
 
-function setBg(el, url, sprite) {
+function setBg(el, url) {
   var th = el.querySelector(".th");
   th.style.backgroundImage = "url(" + url + ")";
-  th.classList.toggle("sprite", !!sprite);
   var g = th.querySelector(".glyph"); if (g) g.style.display = "none";
 }
 function setDur(el, s) { var d = el.querySelector(".dur"); if (d) d.textContent = clock(s); }
 
+function metaOf(it) {
+  var lib = libs[it.lib]; if (!lib) return {};
+  lib.meta[it.p] = lib.meta[it.p] || {};
+  return lib.meta[it.p];
+}
+
 function probeDur(it, cb) {
-  if (meta[it.p] && meta[it.p].dur != null) return cb(meta[it.p].dur);
-  run(FFPROBE, ["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", it.p],
+  var m = metaOf(it);
+  if (m.dur != null) return cb(m.dur);
+  run(FFPROBE, ["-v","error","-show_entries","format=duration","-of","default=nw=1:nk=1", it.p],
     function (err, out) {
       var d = err ? null : parseFloat(String(out).trim());
       if (!isFinite(d)) d = null;
-      meta[it.p] = meta[it.p] || {}; meta[it.p].dur = d; cb(d);
+      m.dur = d; cb(d);
     });
 }
 
@@ -398,8 +435,8 @@ function thumb(el) {
     if (WEB_IMAGE[it.e] && it.sz < 6 * 1024 * 1024) return setBg(el, fileUrl(it.p));
     var out = cachePath("th", key, ".jpg");
     if (fs.existsSync(out)) return setBg(el, fileUrl(out));
-    run(FFMPEG, ["-v", "error", "-i", it.p, "-frames:v", "1", "-vf",
-      "scale=320:200:force_original_aspect_ratio=increase,crop=320:200", "-q:v", "4", "-y", out],
+    run(FFMPEG, ["-v","error","-i",it.p,"-frames:v","1","-vf",
+      "scale=320:180:force_original_aspect_ratio=increase,crop=320:180","-q:v","4","-y",out],
       function (err) { if (!err && fs.existsSync(out)) setBg(el, fileUrl(out)); });
     return;
   }
@@ -407,8 +444,8 @@ function thumb(el) {
     var wf = cachePath("wf", key, ".png");
     probeDur(it, function (d) { setDur(el, d); });
     if (fs.existsSync(wf)) return setBg(el, fileUrl(wf));
-    run(FFMPEG, ["-v", "error", "-i", it.p, "-filter_complex",
-      "aformat=channel_layouts=mono,showwavespic=s=320x200:colors=#3E8FE0", "-frames:v", "1", "-y", wf],
+    run(FFMPEG, ["-v","error","-i",it.p,"-filter_complex",
+      "aformat=channel_layouts=mono,showwavespic=s=320x180:colors=#5B9BE8","-frames:v","1","-y",wf],
       function (err) { if (!err && fs.existsSync(wf)) setBg(el, fileUrl(wf)); });
     return;
   }
@@ -417,33 +454,33 @@ function thumb(el) {
     setDur(el, d);
     if (fs.existsSync(po)) { el.dataset.poster = fileUrl(po); return setBg(el, fileUrl(po)); }
     var at = (d && d > 3) ? Math.min(d * 0.15, 20) : 0;
-    run(FFMPEG, ["-v", "error", "-ss", String(at.toFixed(2)), "-i", it.p, "-frames:v", "1", "-vf",
-      "scale=320:200:force_original_aspect_ratio=increase,crop=320:200", "-q:v", "4", "-y", po],
+    run(FFMPEG, ["-v","error","-ss",String(at.toFixed(2)),"-i",it.p,"-frames:v","1","-vf",
+      "scale=320:180:force_original_aspect_ratio=increase,crop=320:180","-q:v","4","-y",po],
       function (err) { if (!err && fs.existsSync(po)) { el.dataset.poster = fileUrl(po); setBg(el, fileUrl(po)); } });
   });
 }
 
-var CELL = "scale=160:100:force_original_aspect_ratio=increase,crop=160:100";
+var CELL = "scale=160:90:force_original_aspect_ratio=increase,crop=160:90";
 
 function spriteArgs(file, dur, out) {
   if (dur <= 45) {
-    return ["-v", "error", "-i", file, "-vf",
+    return ["-v","error","-i",file,"-vf",
       "fps=" + (SPRITE_N / dur).toFixed(6) + "," + CELL + ",tile=" + SPRITE_N + "x1",
-      "-frames:v", "1", "-q:v", "5", "-y", out];
+      "-frames:v","1","-q:v","5","-y",out];
   }
-  var args = ["-v", "error"], fc = [], names = "";
+  var args = ["-v","error"], fc = [], names = "";
   for (var i = 0; i < SPRITE_N; i++) {
     args.push("-ss", (dur * (i + 0.5) / SPRITE_N).toFixed(3), "-i", file);
     fc.push("[" + i + ":v]" + CELL + ",setsar=1[v" + i + "]");
     names += "[v" + i + "]";
   }
   fc.push(names + "hstack=inputs=" + SPRITE_N + "[o]");
-  return args.concat(["-filter_complex", fc.join(";"), "-map", "[o]", "-frames:v", "1", "-q:v", "5", "-y", out]);
+  return args.concat(["-filter_complex", fc.join(";"), "-map","[o]","-frames:v","1","-q:v","5","-y",out]);
 }
 
 function hoverSprite(el, it) {
   if (!CACHE || !nodeReq) return;
-  var th = el.querySelector(".th"), key = keyOf(it), sp = cachePath("sp", key, ".jpg");
+  var th = el.querySelector(".th"), sp = cachePath("sp", keyOf(it), ".jpg");
   function attach() {
     th.style.backgroundImage = "url(" + fileUrl(sp) + ")";
     th.style.backgroundSize = (SPRITE_N * 100) + "% 100%";
@@ -470,7 +507,7 @@ function hoverSprite(el, it) {
   });
 }
 
-/* ------------------------------- preview ------------------------------- */
+/* -------------------------------- preview ------------------------------ */
 
 function stopAudio() {
   try { audio.pause(); } catch (e) {}
@@ -483,7 +520,8 @@ function stopHoverPreview() { clearTimeout(hoverTimer); if (playingTile && playi
 
 audio.addEventListener("timeupdate", function () {
   if (!playingTile || !audio.duration) return;
-  var b = playingTile.querySelector(".pos"); if (b) b.style.width = (audio.currentTime / audio.duration * 100) + "%";
+  var b = playingTile.querySelector(".pos");
+  if (b) b.style.width = (audio.currentTime / audio.duration * 100) + "%";
 });
 audio.addEventListener("ended", stopAudio);
 
@@ -501,9 +539,9 @@ function playAudio(el, it, hover) {
     audio.onerror = null;
     var pv = cachePath("pv", keyOf(it), ".mp3");
     if (fs.existsSync(pv)) return start(fileUrl(pv));
-    if (hover) return;   // pas de conversion lourde juste au survol
+    if (hover) return;
     say("Conversion pour l'ecoute (" + it.e + ")...");
-    run(FFMPEG, ["-v", "error", "-i", it.p, "-vn", "-ac", "2", "-b:a", "192k", "-y", pv],
+    run(FFMPEG, ["-v","error","-i",it.p,"-vn","-ac","2","-b:a","192k","-y",pv],
       function (err) { if (!err && fs.existsSync(pv) && playingTile === el) start(fileUrl(pv)); });
   }
 }
@@ -520,7 +558,7 @@ function openViewer(it) {
     else {
       var big = cachePath("big", keyOf(it), ".jpg"), im2 = document.createElement("img"); body.appendChild(im2);
       if (fs.existsSync(big)) im2.src = fileUrl(big);
-      else run(FFMPEG, ["-v", "error", "-i", it.p, "-frames:v", "1", "-vf", "scale='min(1600,iw)':-1", "-q:v", "3", "-y", big],
+      else run(FFMPEG, ["-v","error","-i",it.p,"-frames:v","1","-vf","scale='min(1600,iw)':-1","-q:v","3","-y",big],
         function (err) {
           if (!err && fs.existsSync(big)) im2.src = fileUrl(big);
           else body.innerHTML = '<div class="vmsg">Apercu impossible pour ce format (' + it.e + ').<br>Le fichier reste importable.</div>';
@@ -531,7 +569,8 @@ function openViewer(it) {
   if (it.k === "video") {
     if (WEB_VIDEO[it.e]) {
       var v = document.createElement("video");
-      v.src = fileUrl(it.p); v.controls = true; v.autoplay = true; v.loop = true; v.volume = (+$("#vol").value) / 100;
+      v.src = fileUrl(it.p); v.controls = true; v.autoplay = true; v.loop = true;
+      v.volume = (+$("#vol").value) / 100;
       v.onerror = function () { body.innerHTML = '<div class="vmsg">Codec non lisible par Chromium.<br>Survole la vignette pour scruber, ou glisse-le sur la timeline.</div>'; };
       body.appendChild(v);
     } else body.innerHTML = '<div class="vmsg">Format conteneur non lisible ici (' + it.e + ').<br>Survole la vignette pour scruber les images.</div>';
@@ -546,72 +585,55 @@ function preview(el, it) {
   stopAudio(); openViewer(it);
 }
 
-/* -------------------------------- import ------------------------------- */
+/* --------------------------------- import ------------------------------ */
 
 function doImport(it) {
-  var bin = root ? path.basename(root) : "Mudkit";
+  var bin = libs[it.lib] ? base(libs[it.lib].root) : "Mudkit";
   say("Import de " + it.n + "...");
   evalScript("mudkitLibImport(" + JSON.stringify(it.p) + "," + JSON.stringify(action) + "," + JSON.stringify(bin) + ")")
     .then(function (res) {
       if (res === "inserted") say(CHECK + " " + it.n + " pose sur la timeline", "ok");
-      else if (res === "imported") say(CHECK + " " + it.n + " dans le chutier \u00AB " + bin + " \u00BB", "ok");
+      else if (res === "imported") say(CHECK + " " + it.n + " dans le chutier " + bin, "ok");
       else if (res === "imported_no_seq") say(CHECK + " Importe (aucune sequence active)", "ok");
       else if (res && res.indexOf("imported_insert_failed") === 0) say("Importe, insertion impossible : " + res.split(":").slice(1).join(":"), "err");
       else say("Import echoue : " + res, "err");
     });
 }
 
-/* -------------------------------- racines ------------------------------ */
+/* --------------------------------- racines ----------------------------- */
 
-function saveRoots() { lsSet("mudkit.lib.roots", JSON.stringify(roots)); }
+function saveRoots() { lsSet("mudkit.lib.roots", JSON.stringify(libs.map(function (l) { return l.root; }))); }
 
-function fillRoots() {
-  var sel = $("#folders"); sel.innerHTML = "";
-  if (!roots.length) { sel.innerHTML = '<option value="">Aucun dossier</option>'; return; }
-  roots.forEach(function (f) {
-    var o = document.createElement("option"); o.value = f;
-    o.textContent = (path.basename(f) || f); o.title = f;
-    if (f === root) o.selected = true; sel.appendChild(o);
-  });
+function mountRoot(r, forceRescan, done) {
+  var lib = { root:r, items:[], meta:{} };
+  libs.push(lib);
+  var cached = forceRescan ? null : loadIndex(r);
+  if (cached) { lib.items = cached.items; lib.meta = cached.meta || {}; return done(lib, true); }
+  scan(lib, function () { done(lib, false); });
 }
 
-function openRoot(r, forceRescan) {
-  stopHoverPreview();
-  root = r; stack = [];
-  lsSet("mudkit.lib.current", r);
-  fillRoots();
-  token++; queue.length = 0; meta = {};
-  if (!r) { all = []; return redraw(); }
-  if (!fs.existsSync(r)) { all = []; redraw(); return say("Dossier introuvable : " + r, "err"); }
-  var cached = forceRescan ? null : loadIndex(r);
-  if (cached) {
-    all = cached.items; meta = cached.meta || {}; redraw();
-    var age = Math.round((Date.now() - cached.ts) / 60000);
-    say(all.length + " elements (cache, " + (age < 60 ? age + " min" : Math.round(age / 60) + " h") + ") - rescan avec le bouton tournant");
-    return;
-  }
-  all = []; $("#grid").innerHTML = '<div class="empty">Scan en cours...</div>'; say("Scan de " + r + "...");
-  scan(r, function () { redraw(); });
+function refreshAfterMount() {
+  rebuildAll(); renderTree(); redraw();
 }
 
 function pickFolder() {
   if (!window.cep || !window.cep.fs || !window.cep.fs.showOpenDialog)
     return say("Selecteur de dossier indisponible (CEP).", "err");
-  var res = window.cep.fs.showOpenDialog(false, true, "Dossier de medias", root || "", []);
+  var res = window.cep.fs.showOpenDialog(false, true, "Dossier de medias", "", []);
   var p = res && res.data && res.data[0]; if (!p) return;
   p = p.replace(/\//g, "\\").replace(/\\+$/, "");
-  if (roots.indexOf(p) < 0) { roots.unshift(p); saveRoots(); }
-  openRoot(p, false);
+  for (var i = 0; i < libs.length; i++) if (libs[i].root.toLowerCase() === p.toLowerCase()) return say("Deja monte.", "err");
+  say("Scan de " + p + "...");
+  mountRoot(p, false, function () { saveRoots(); refreshAfterMount(); });
 }
 
-/* -------------------------------- cablage ------------------------------ */
+function selectedLib() {
+  if (!sel) return -1;
+  return +sel.split(":")[0];
+}
 
-document.querySelectorAll("#kinds button").forEach(function (b) {
-  b.addEventListener("click", function () {
-    document.querySelectorAll("#kinds button").forEach(function (x) { x.classList.remove("on"); });
-    b.classList.add("on"); kind = b.dataset.k; lsSet("mudkit.lib.kind", kind); redraw();
-  });
-});
+/* --------------------------------- cablage ----------------------------- */
+
 document.querySelectorAll("#libact button").forEach(function (b) {
   b.addEventListener("click", function () {
     document.querySelectorAll("#libact button").forEach(function (x) { x.classList.remove("on"); });
@@ -620,31 +642,69 @@ document.querySelectorAll("#libact button").forEach(function (b) {
 });
 
 var qTimer = null;
-$("#q").addEventListener("input", function (e) { query = e.target.value; clearTimeout(qTimer); qTimer = setTimeout(redraw, 170); });
+$("#q").addEventListener("input", function (e) {
+  query = e.target.value; clearTimeout(qTimer); qTimer = setTimeout(redraw, 170);
+});
 
-$("#back").addEventListener("click", function () {
-  if (query.trim()) { query = ""; $("#q").value = ""; return redraw(); }
-  if (stack.length) { stack.pop(); redraw(); }
+$("#favfilter").addEventListener("click", function () {
+  favOnly = !favOnly;
+  this.classList.toggle("on", favOnly);
+  lsSet("mudkit.lib.favonly", favOnly ? "1" : "0");
+  redraw();
 });
+
 $("#pick").addEventListener("click", pickFolder);
+
 $("#forget").addEventListener("click", function () {
-  if (!root) return;
-  var i = roots.indexOf(root); if (i >= 0) roots.splice(i, 1); saveRoots();
-  openRoot(roots[0] || "", false);
+  var li = selectedLib();
+  if (li < 0 || !libs[li]) return say("Selectionne d'abord un dossier racine dans l'arbre.", "err");
+  invalidate();
+  libs.splice(li, 1); sel = ""; saveRoots();
+  lsSet("mudkit.lib.sel", "");
+  refreshAfterMount();
 });
-$("#rescan").addEventListener("click", function () { if (root) openRoot(root, true); });
-$("#folders").addEventListener("change", function (e) { if (e.target.value) openRoot(e.target.value, false); });
-$("#viewmode").addEventListener("click", function () {
-  listView = !listView; $("#grid").classList.toggle("list", listView);
-  lsSet("mudkit.lib.view", listView ? "list" : "grid");
+
+$("#rescan").addEventListener("click", function () {
+  var li = selectedLib();
+  var targets = (li >= 0 && libs[li]) ? [libs[li]] : libs.slice();
+  if (!targets.length) return;
+  invalidate();
+  var n = targets.length, done = 0;
+  targets.forEach(function (lib) {
+    scan(lib, function () { saveIndex(lib); if (++done === n) refreshAfterMount(); });
+  });
 });
+
+$("#size").addEventListener("input", function (e) {
+  tileW = +e.target.value;
+  document.documentElement.style.setProperty("--tw", tileW + "px");
+  lsSet("mudkit.lib.tilew", String(tileW));
+});
+
 $("#vol").addEventListener("input", function (e) {
   audio.volume = (+e.target.value) / 100;
   var v = $("#vbody").querySelector("video"); if (v) v.volume = audio.volume;
   lsSet("mudkit.lib.vol", e.target.value);
 });
+
 $("#vclose").addEventListener("click", closeViewer);
 $("#vadd").addEventListener("click", function () { if (viewerItem) doImport(viewerItem); });
+
+/* splitter */
+(function () {
+  var dragging = false;
+  $("#split").addEventListener("mousedown", function (e) { dragging = true; e.preventDefault(); });
+  document.addEventListener("mousemove", function (e) {
+    if (!dragging) return;
+    var w = Math.max(110, Math.min(window.innerWidth * 0.6, e.clientX));
+    $("#side").style.width = w + "px";
+  });
+  document.addEventListener("mouseup", function () {
+    if (!dragging) return;
+    dragging = false;
+    lsSet("mudkit.lib.sidew", String(parseInt($("#side").style.width, 10) || 168));
+  });
+})();
 
 /* overlay telechargement */
 $("#dl").addEventListener("click", function () { $("#dloverlay").classList.add("on"); var u = $("#url"); if (u) u.focus(); });
@@ -658,25 +718,37 @@ document.addEventListener("keydown", function (e) {
   stopAudio();
 });
 
-/* ------------------------------ demarrage ------------------------------ */
+/* -------------------------------- demarrage ---------------------------- */
 
 if (!nodeReq) {
-  say("Node est desactive dans ce panneau - le gestionnaire ne peut pas lire le disque.", "err");
+  say("Node est desactive dans ce panneau - impossible de lire le disque.", "err");
 } else {
-  try { roots = JSON.parse(ls("mudkit.lib.roots", "[]")) || []; } catch (e) { roots = []; }
-  kind = ls("mudkit.lib.kind", "all");
+  var savedRoots = [];
+  try { savedRoots = JSON.parse(ls("mudkit.lib.roots", "[]")) || []; } catch (e) {}
+  try { (JSON.parse(ls("mudkit.lib.favs", "[]")) || []).forEach(function (p) { favs[p] = 1; }); } catch (e) {}
+  try { open = JSON.parse(ls("mudkit.lib.open", "{}")) || {}; } catch (e) { open = {}; }
+  sel = ls("mudkit.lib.sel", "");
   action = ls("mudkit.lib.action", "insert");
-  listView = ls("mudkit.lib.view", "grid") === "list";
-  $("#vol").value = ls("mudkit.lib.vol", "70"); audio.volume = (+$("#vol").value) / 100;
-  $("#grid").classList.toggle("list", listView);
-  document.querySelectorAll("#kinds button").forEach(function (b) { b.classList.toggle("on", b.dataset.k === kind); });
+  favOnly = ls("mudkit.lib.favonly", "0") === "1";
+  tileW = +ls("mudkit.lib.tilew", "116") || 116;
+
+  document.documentElement.style.setProperty("--tw", tileW + "px");
+  $("#size").value = tileW;
+  $("#vol").value = ls("mudkit.lib.vol", "70");
+  audio.volume = (+$("#vol").value) / 100;
+  $("#side").style.width = (+ls("mudkit.lib.sidew", "168") || 168) + "px";
+  $("#favfilter").classList.toggle("on", favOnly);
   document.querySelectorAll("#libact button").forEach(function (b) { b.classList.toggle("on", b.dataset.v === action); });
   mkdirp(CACHE);
-  fillRoots();
-  var last = ls("mudkit.lib.current", "");
-  if (last && roots.indexOf(last) >= 0) openRoot(last, false);
-  else if (roots.length) openRoot(roots[0], false);
-  else redraw();
+
+  var pending = savedRoots.filter(function (r) { return fs.existsSync(r); });
+  if (!pending.length) redraw();
+  else {
+    var left = pending.length;
+    pending.forEach(function (r) {
+      mountRoot(r, false, function () { if (--left === 0) refreshAfterMount(); });
+    });
+  }
 }
 
 })();

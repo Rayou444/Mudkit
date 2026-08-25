@@ -4,400 +4,314 @@
 <meta charset="utf-8">
 <title>Mudkit</title>
 <style>
-  /* Theme calque sur Premiere (lu au demarrage via appSkinInfo, panel.js). */
   :root {
-    --bg: #232323;
-    --panel: #2D2D2D;
-    --panel-h: #383838;
-    --line: #3D3D3D;
-    --input: #1B1B1B;
-    --text: #D6D6D6;
-    --dim: #999999;
-    --accent: #1473E6;
-    --accent-h: #2B84EE;
-    --green: #3DA35D;
-    --red: #EB5757;
+    --bg:      #1E1E1E;
+    --side:    #262626;
+    --panel:   #2B2B2B;
+    --row-h:   #333333;
+    --row-s:   #3D3D3D;
+    --line:    #383838;
+    --input:   #1B1B1B;
+    --text:    #D8D8D8;
+    --dim:     #9A9A9A;
+    --faint:   #6E6E6E;
+    --accent:  #1473E6;
+    --accent-h:#2B84EE;
+    --green:   #3DA35D;
+    --red:     #EB5757;
+    --star:    #E0A32E;
+    --tw: 116px;              /* largeur de vignette, pilotee par le slider */
   }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; }
   body {
-    font-family: "Segoe UI", system-ui, sans-serif;
-    font-size: 12px;
-    color: var(--text);
-    background: var(--bg);
-    user-select: none;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+    font-family:"Segoe UI", system-ui, sans-serif;
+    font-size:12px; color:var(--text); background:var(--bg);
+    user-select:none; display:flex; flex-direction:column; overflow:hidden;
   }
-  input[type=text] { user-select: text; }
-  .hidden { display: none !important; }
+  input[type=text] { user-select:text; }
+  .hidden { display:none !important; }
 
-  /* ------------------------------ barre haut ---------------------------- */
-
-  .bar {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 6px 7px;
-    background: var(--panel);
-    border-bottom: 1px solid var(--line);
+  /* ------------------------------ barre titre --------------------------- */
+  .titlebar {
+    flex:0 0 auto; display:flex; align-items:center; gap:6px;
+    padding:7px 9px 6px; border-bottom:1px solid var(--line);
   }
-  .bar + .bar { padding-top: 0; border-bottom: 1px solid var(--line); }
-  .bar2 { padding-top: 6px; }
+  .titlebar .ttl { font-size:12.5px; font-weight:600; letter-spacing:.2px; }
+  .titlebar .sp { flex:1; }
 
-  .ico {
-    flex: 0 0 auto;
-    font: inherit;
-    font-size: 12px;
-    line-height: 1;
-    color: var(--text);
-    background: var(--panel-h);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 6px 8px;
-    cursor: pointer;
+  .pill {
+    font:inherit; font-size:11.5px; font-weight:600; color:#FFF;
+    background:var(--accent); border:1px solid transparent; border-radius:13px;
+    padding:5px 12px; cursor:pointer;
   }
-  .ico:hover { background: var(--accent); border-color: var(--accent); color: #FFF; }
-  .ico.on { background: var(--accent); border-color: var(--accent); color: #FFF; }
-  .dlbtn { margin-left: auto; }
+  .pill:hover { background:var(--accent-h); }
 
-  .crumb {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    overflow: hidden;
-    white-space: nowrap;
-    font-size: 11.5px;
+  .ghost {
+    font:inherit; font-size:12px; line-height:1; color:var(--dim);
+    background:transparent; border:1px solid var(--line); border-radius:4px;
+    padding:5px 7px; cursor:pointer;
   }
-  .crumb .seg {
-    color: var(--dim);
-    cursor: pointer;
-    max-width: 130px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .crumb .seg:hover { color: var(--text); }
-  .crumb .seg.last { color: var(--text); cursor: default; }
-  .crumb .sep { color: #5A5A5A; flex: 0 0 auto; }
+  .ghost:hover { color:var(--text); background:var(--row-h); }
+  .ghost.on { color:#FFF; background:var(--accent); border-color:var(--accent); }
 
-  select#folders {
-    flex: 0 1 auto;
-    min-width: 0;
-    max-width: 150px;
-    font: inherit;
-    font-size: 11.5px;
-    color: var(--text);
-    background: var(--input);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 5px 6px;
-    outline: none;
-  }
+  /* --------------------------------- corps ------------------------------ */
+  .main { flex:1 1 auto; min-height:0; display:flex; }
 
+  .side {
+    flex:0 0 auto; width:168px; min-width:110px; max-width:60%;
+    background:var(--side); border-right:1px solid var(--line);
+    display:flex; flex-direction:column; min-height:0;
+  }
+  .sidetop { flex:0 0 auto; display:flex; gap:5px; padding:7px 7px 6px; }
+  .starbtn {
+    flex:0 0 auto; font:inherit; font-size:13px; line-height:1;
+    color:var(--faint); background:transparent; border:1px solid var(--line);
+    border-radius:4px; padding:4px 6px; cursor:pointer;
+  }
+  .starbtn:hover { color:var(--star); }
+  .starbtn.on { color:var(--star); border-color:var(--star); }
   .search {
-    flex: 1 1 auto;
-    min-width: 0;
-    font: inherit;
-    color: var(--text);
-    background: var(--input);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 6px 8px;
-    outline: none;
+    flex:1; min-width:0; font:inherit; font-size:11.5px; color:var(--text);
+    background:var(--input); border:1px solid var(--line); border-radius:4px;
+    padding:4px 7px; outline:none;
   }
-  .search:focus { border-color: var(--accent); }
-  .search::placeholder { color: #6E6E6E; }
+  .search:focus { border-color:var(--accent); }
+  .search::placeholder { color:var(--faint); }
 
-  .chips {
-    flex: 0 0 auto;
-    display: flex;
-    gap: 4px;
-    padding: 6px 7px;
-    background: var(--panel);
-    border-bottom: 1px solid var(--line);
-  }
-  .chips button {
-    flex: 1;
-    font: inherit;
-    font-size: 11px;
-    color: var(--dim);
-    background: var(--input);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 3px 4px;
-    cursor: pointer;
-  }
-  .chips button:hover { color: var(--text); }
-  .chips button.on { color: #FFF; background: var(--accent); border-color: var(--accent); }
+  .tree { flex:1 1 auto; min-height:0; overflow:auto; padding-bottom:6px; }
 
-  #libstatus {
-    flex: 0 0 auto;
-    padding: 4px 9px;
-    font-size: 10.5px;
-    color: #6E6E6E;
-    border-bottom: 1px solid var(--line);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .node {
+    display:flex; align-items:center; gap:4px;
+    padding:4px 6px; cursor:pointer; white-space:nowrap;
+    border-bottom:1px solid rgba(0,0,0,.18);
   }
-  #libstatus.err { color: var(--red); }
-  #libstatus.ok { color: var(--green); }
+  .node:hover { background:var(--row-h); }
+  .node.sel { background:var(--row-s); }
+  .node.root { font-weight:600; background:rgba(255,255,255,.035); }
+  .node .tw {
+    flex:0 0 auto; width:11px; text-align:center; font-size:8px;
+    color:var(--faint); transition:transform .12s;
+  }
+  .node .tw.open { transform:rotate(90deg); }
+  .node .tw.leaf { visibility:hidden; }
+  .node .ic { flex:0 0 auto; font-size:10px; color:var(--dim); }
+  .node .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; font-size:11.5px; }
+  .node .ct { flex:0 0 auto; font-size:9.5px; color:var(--faint); }
+
+  .split {
+    flex:0 0 auto; width:5px; cursor:col-resize; background:transparent;
+    border-right:1px solid var(--line);
+  }
+  .split:hover { background:var(--accent); }
+
+  .content { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
 
   /* -------------------------------- grille ------------------------------ */
-
   #grid {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: auto;
-    padding: 8px;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-    gap: 7px;
-    align-content: start;
+    flex:1 1 auto; min-height:0; overflow:auto; padding:9px;
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(var(--tw), 1fr));
+    gap:10px 9px; align-content:start;
   }
-  #grid.list { grid-template-columns: 1fr; gap: 2px; }
 
-  .folder {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    grid-column: 1 / -1;
-    padding: 7px 8px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  .folder:hover { background: var(--panel-h); border-color: var(--accent); }
-  .folder .fi { font-size: 15px; color: var(--accent); flex: 0 0 auto; }
-  .folder .fn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .folder .fc { flex: 0 0 auto; font-size: 10px; color: var(--dim); }
-
-  .tile {
-    position: relative;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    overflow: hidden;
-    cursor: grab;
-  }
-  .tile:active { cursor: grabbing; }
-  .tile:hover { border-color: var(--accent); }
-  .tile.playing { border-color: var(--green); }
+  .tile { position:relative; cursor:grab; }
+  .tile:active { cursor:grabbing; }
   .tile .th {
-    position: relative;
-    width: 100%;
-    padding-top: 62%;
-    background: var(--input) no-repeat center center;
-    background-size: cover;
-    overflow: hidden;
+    position:relative; width:100%; padding-top:56.25%;
+    background:var(--input) no-repeat center center; background-size:cover;
+    border:1px solid var(--line); border-radius:3px; overflow:hidden;
   }
-  .tile .th.sprite { background-repeat: no-repeat; }
+  .tile:hover .th { border-color:var(--accent); }
+  .tile.playing .th { border-color:var(--green); }
   .tile .glyph {
-    position: absolute;
-    left: 0; right: 0; top: 0; bottom: 0;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 19px; color: #4A4A4A;
-  }
-  .tile .nm {
-    padding: 3px 4px 4px;
-    font-size: 10px; line-height: 1.25;
-    color: var(--text);
-    height: 27px; overflow: hidden; word-break: break-word;
+    position:absolute; left:0; right:0; top:0; bottom:0;
+    display:flex; align-items:center; justify-content:center;
+    font-size:17px; color:#4A4A4A;
   }
   .tile .dur {
-    position: absolute; right: 3px; bottom: 3px;
-    font-size: 9px; padding: 0 3px; border-radius: 2px;
-    background: rgba(0,0,0,.72); color: #EEE;
+    position:absolute; right:3px; bottom:3px; font-size:9px; padding:0 3px;
+    border-radius:2px; background:rgba(0,0,0,.75); color:#EEE;
   }
+  .tile .pos { position:absolute; left:0; bottom:0; height:2px; background:var(--green); width:0; }
   .tile .add {
-    position: absolute; left: 3px; top: 3px;
-    width: 17px; height: 17px; line-height: 15px; text-align: center;
-    font-size: 13px; border-radius: 3px;
-    background: rgba(0,0,0,.6); color: #FFF; opacity: 0; transition: opacity .12s;
+    position:absolute; left:3px; top:3px; width:16px; height:16px; line-height:14px;
+    text-align:center; font-size:12px; border-radius:3px;
+    background:rgba(0,0,0,.62); color:#FFF; opacity:0; transition:opacity .12s;
   }
-  .tile:hover .add { opacity: 1; }
-  .tile .add:hover { background: var(--accent); }
-  .tile .pos { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--green); width: 0; }
+  .tile:hover .add { opacity:1; }
+  .tile .add:hover { background:var(--accent); }
 
-  #grid.list .tile { display: flex; align-items: center; gap: 7px; padding: 2px; }
-  #grid.list .tile .th { width: 62px; padding-top: 0; height: 34px; flex: 0 0 auto; border-radius: 3px; }
-  #grid.list .tile .nm { height: auto; flex: 1; min-width: 0; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; }
-  #grid.list .tile .dur { position: static; background: none; color: var(--dim); margin-right: 4px; }
-  #grid.list .tile .add { position: static; opacity: .6; flex: 0 0 auto; margin-right: 3px; }
+  .meta { display:flex; align-items:center; gap:4px; margin-top:4px; }
+  .meta .badge { flex:0 0 auto; font-size:9px; line-height:1; }
+  .meta .badge.audio { color:#4FB477; }
+  .meta .badge.video { color:#5B9BE8; }
+  .meta .badge.image { color:#B07BD4; }
+  .meta .nm {
+    flex:1; min-width:0; font-size:10.5px; color:var(--text);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .meta .fav {
+    flex:0 0 auto; font-size:11px; color:#4A4A4A; cursor:pointer; padding:0 1px;
+  }
+  .meta .fav:hover { color:var(--star); }
+  .meta .fav.on { color:var(--star); }
 
-  #more { grid-column: 1 / -1; text-align: center; color: #6E6E6E; font-size: 11px; padding: 8px; }
-
+  #more { grid-column:1/-1; text-align:center; color:var(--faint); font-size:11px; padding:8px; }
   .empty {
-    grid-column: 1 / -1; padding: 26px 14px; text-align: center;
-    color: #6E6E6E; font-size: 11.5px; line-height: 1.6;
+    grid-column:1/-1; padding:30px 16px; text-align:center;
+    color:var(--faint); font-size:11.5px; line-height:1.65;
   }
-  .empty b { color: var(--text); }
+  .empty b { color:var(--text); }
 
-  /* -------------------------------- footer ------------------------------ */
-
-  .libfoot {
-    flex: 0 0 auto;
-    display: flex; align-items: center; gap: 8px;
-    padding: 6px 8px;
-    background: var(--panel);
-    border-top: 1px solid var(--line);
-    font-size: 10px; color: #6E6E6E;
+  /* ------------------------------ barre bas ----------------------------- */
+  .statusbar {
+    flex:0 0 auto; display:flex; align-items:center; gap:9px;
+    padding:5px 9px; border-top:1px solid var(--line); background:var(--panel);
+    font-size:10px; color:var(--faint);
   }
-  .libfoot .modes { display: flex; gap: 3px; }
-  .libfoot .modes button {
-    font: inherit; font-size: 10px; color: var(--dim);
-    background: var(--input); border: 1px solid var(--line);
-    border-radius: 3px; padding: 3px 6px; cursor: pointer;
+  .statusbar input[type=range] { width:74px; accent-color:var(--dim); vertical-align:middle; }
+  .statusbar #vol { width:56px; accent-color:var(--accent); }
+  .statusbar .msg {
+    flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    font-size:10.5px;
   }
-  .libfoot .modes button.on { color: #FFF; background: var(--accent); border-color: var(--accent); }
-  .libfoot .sp { flex: 1; }
-  .libfoot input[type=range] { width: 62px; accent-color: var(--accent); vertical-align: middle; }
+  .statusbar .msg.err { color:var(--red); }
+  .statusbar .msg.ok  { color:var(--green); }
+  .modes { display:flex; gap:3px; }
+  .modes button {
+    font:inherit; font-size:10px; color:var(--dim); background:var(--input);
+    border:1px solid var(--line); border-radius:3px; padding:3px 6px; cursor:pointer;
+  }
+  .modes button.on { color:#FFF; background:var(--accent); border-color:var(--accent); }
 
   /* ----------------------------- visionneuse ---------------------------- */
-
   #viewer {
-    position: fixed; left: 0; right: 0; top: 0; bottom: 0;
-    background: rgba(0,0,0,.93); display: none; flex-direction: column; z-index: 20;
+    position:fixed; left:0; right:0; top:0; bottom:0; background:rgba(0,0,0,.94);
+    display:none; flex-direction:column; z-index:20;
   }
-  #viewer.on { display: flex; }
-  #viewer .vbody { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; }
-  #viewer img, #viewer video { max-width: 100%; max-height: 100%; }
-  #viewer .vmsg { color: #9A9A9A; font-size: 11.5px; text-align: center; line-height: 1.6; padding: 0 16px; }
-  #viewer .vbar { flex: 0 0 auto; display: flex; gap: 6px; align-items: center; padding: 7px 8px; background: var(--panel); border-top: 1px solid var(--line); }
-  #viewer .vname { flex: 1; min-width: 0; font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #viewer.on { display:flex; }
+  #viewer .vbody { flex:1; min-height:0; display:flex; align-items:center; justify-content:center; padding:10px; }
+  #viewer img, #viewer video { max-width:100%; max-height:100%; }
+  #viewer .vmsg { color:var(--dim); font-size:11.5px; text-align:center; line-height:1.7; padding:0 18px; }
+  #viewer .vbar { flex:0 0 auto; display:flex; gap:6px; align-items:center; padding:7px 9px; background:var(--panel); border-top:1px solid var(--line); }
+  #viewer .vname { flex:1; min-width:0; font-size:11px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
   /* --------------------------- overlay download ------------------------- */
-
   .overlay {
-    position: fixed; left: 0; right: 0; top: 0; bottom: 0;
-    background: rgba(0,0,0,.5); display: none;
-    align-items: flex-start; justify-content: center; z-index: 30;
-    padding: 10px;
+    position:fixed; left:0; right:0; top:0; bottom:0; background:rgba(0,0,0,.55);
+    display:none; align-items:flex-start; justify-content:center; z-index:30; padding:10px;
   }
-  .overlay.on { display: flex; }
+  .overlay.on { display:flex; }
   .card {
-    width: 100%; max-width: 420px;
-    background: var(--bg);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 12px;
-    box-shadow: 0 10px 40px rgba(0,0,0,.5);
-    max-height: 100%; overflow: auto;
+    width:100%; max-width:430px; background:var(--bg); border:1px solid var(--line);
+    border-radius:6px; padding:13px; box-shadow:0 12px 44px rgba(0,0,0,.55);
+    max-height:100%; overflow:auto;
   }
   .card h2 {
-    display: flex; align-items: center;
-    font-size: 12px; font-weight: 600; letter-spacing: .3px;
-    text-transform: uppercase; color: var(--dim); margin-bottom: 4px;
+    display:flex; align-items:center; font-size:12px; font-weight:600;
+    letter-spacing:.3px; text-transform:uppercase; color:var(--dim);
   }
-  .card h2 .x { margin-left: auto; }
-
+  .card h2 .x { margin-left:auto; }
   label.t {
-    display: block; font-size: 10px; font-weight: 600; letter-spacing: .8px;
-    text-transform: uppercase; color: var(--dim); margin: 12px 0 5px;
+    display:block; font-size:10px; font-weight:600; letter-spacing:.8px;
+    text-transform:uppercase; color:var(--dim); margin:12px 0 5px;
   }
-  input#url {
-    width: 100%; font: inherit; color: var(--text);
-    background: var(--input); border: 1px solid var(--line);
-    border-radius: 4px; padding: 6px 8px; outline: none;
+  input#url, .cutrow input {
+    width:100%; font:inherit; color:var(--text); background:var(--input);
+    border:1px solid var(--line); border-radius:4px; padding:6px 8px; outline:none;
   }
-  input#url:focus { border-color: var(--accent); }
-  input#url::placeholder { color: #6E6E6E; }
-  .seg { display: grid; gap: 5px; }
+  input#url:focus { border-color:var(--accent); }
+  input#url::placeholder { color:var(--faint); }
+  .seg { display:grid; gap:5px; }
   .seg button {
-    font: inherit; font-size: 11.5px; color: var(--text);
-    background: var(--panel); border: 1px solid var(--line);
-    border-radius: 4px; padding: 6px 8px; cursor: pointer;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font:inherit; font-size:11.5px; color:var(--text); background:var(--panel);
+    border:1px solid var(--line); border-radius:4px; padding:6px 8px; cursor:pointer;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
-  .seg button:hover { background: var(--panel-h); }
-  .seg button.on { background: var(--accent); border-color: var(--accent); color: #FFF; }
-  .check { display: flex; align-items: center; gap: 7px; margin-top: 12px; cursor: pointer; font-size: 12px; }
-  .check input { accent-color: var(--accent); width: 14px; height: 14px; }
-  .cutrow { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
-  .cutrow input { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--input); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; outline: none; }
-  .cutrow span { color: var(--dim); }
-  .cta { width: 100%; margin-top: 14px; font: inherit; font-size: 12.5px; font-weight: 600; color: #FFF; background: var(--accent); border: 1px solid transparent; border-radius: 4px; padding: 8px; cursor: pointer; }
-  .cta:hover { background: var(--accent-h); }
-  .cta:disabled { opacity: .4; cursor: default; }
-  .btn { width: 100%; margin-top: 6px; font: inherit; font-size: 12px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 7px; cursor: pointer; }
-  .btn:hover { background: var(--panel-h); }
-  .bar-pg { height: 4px; border-radius: 2px; background: var(--input); border: 1px solid var(--line); overflow: hidden; margin-top: 12px; }
-  .bar-pg i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s; }
-  .bar-pg.indet i { width: 30% !important; animation: indet 1.1s ease-in-out infinite alternate; }
-  @keyframes indet { from { transform: translateX(-40%); } to { transform: translateX(280%); } }
-  #status { margin-top: 8px; color: var(--dim); font-size: 11.5px; line-height: 1.5; word-break: break-word; }
-  #status.ok { color: var(--green); }
-  #status.err { color: var(--red); }
-  .foot { margin-top: 12px; font-size: 10px; color: #6E6E6E; }
-  .foot a { color: var(--dim); }
-  .foot a:hover { color: var(--text); }
+  .seg button:hover { background:var(--row-h); }
+  .seg button.on { background:var(--accent); border-color:var(--accent); color:#FFF; }
+  .check { display:flex; align-items:center; gap:7px; margin-top:12px; cursor:pointer; font-size:12px; }
+  .check input { accent-color:var(--accent); width:14px; height:14px; }
+  .cutrow { display:flex; align-items:center; gap:6px; margin-top:7px; }
+  .cutrow input { flex:1; min-width:0; }
+  .cutrow span { color:var(--dim); }
+  .cta {
+    width:100%; margin-top:14px; font:inherit; font-size:12.5px; font-weight:600;
+    color:#FFF; background:var(--accent); border:1px solid transparent;
+    border-radius:4px; padding:8px; cursor:pointer;
+  }
+  .cta:hover { background:var(--accent-h); }
+  .cta:disabled { opacity:.4; cursor:default; }
+  .btn {
+    width:100%; margin-top:6px; font:inherit; font-size:12px; color:var(--text);
+    background:var(--panel); border:1px solid var(--line); border-radius:4px;
+    padding:7px; cursor:pointer;
+  }
+  .btn:hover { background:var(--row-h); }
+  .bar-pg { height:4px; border-radius:2px; background:var(--input); border:1px solid var(--line); overflow:hidden; margin-top:12px; }
+  .bar-pg i { display:block; height:100%; width:0; background:var(--accent); transition:width .25s; }
+  .bar-pg.indet i { width:30% !important; animation:indet 1.1s ease-in-out infinite alternate; }
+  @keyframes indet { from { transform:translateX(-40%); } to { transform:translateX(280%); } }
+  #status { margin-top:8px; color:var(--dim); font-size:11.5px; line-height:1.5; word-break:break-word; }
+  #status.ok { color:var(--green); }
+  #status.err { color:var(--red); }
+  .foot { margin-top:12px; font-size:10px; color:var(--faint); }
+  .foot a { color:var(--dim); }
+  .foot a:hover { color:var(--text); }
 </style>
 </head>
 <body>
 
-<!-- ============================ GESTIONNAIRE =========================== -->
-<div class="bar bar1">
-  <button id="back" class="ico hidden" title="Dossier parent">◀</button>
-  <select id="folders" title="Dossiers mémorisés"></select>
-  <div id="crumb" class="crumb"></div>
-  <button id="pick" class="ico" title="Ajouter un dossier">＋</button>
-  <button id="rescan" class="ico" title="Rescanner le dossier">⟳</button>
-  <button id="dl" class="ico dlbtn" title="Télécharger un média">⬇</button>
+<div class="titlebar">
+  <span class="ttl">Mudkit</span>
+  <span class="sp"></span>
+  <button id="pick"   class="ghost" title="Ajouter un dossier">＋</button>
+  <button id="forget" class="ghost" title="Retirer le dossier selectionne">−</button>
+  <button id="rescan" class="ghost" title="Rescanner">⟳</button>
+  <button id="dl"     class="pill">⬇ Télécharger</button>
 </div>
 
-<div class="bar bar2">
-  <input id="q" class="search" type="text" spellcheck="false"
-         placeholder="Rechercher dans tout le dossier…">
-  <button id="viewmode" class="ico" title="Vignettes / liste">▤</button>
-  <button id="forget" class="ico" title="Retirer ce dossier de la liste">−</button>
+<div class="main">
+  <div class="side" id="side">
+    <div class="sidetop">
+      <button id="favfilter" class="starbtn" title="Afficher seulement les favoris">★</button>
+      <input id="q" class="search" type="text" spellcheck="false" placeholder="Rechercher">
+    </div>
+    <div class="tree" id="tree"></div>
+  </div>
+  <div class="split" id="split"></div>
+  <div class="content">
+    <div id="grid"></div>
+  </div>
 </div>
 
-<div class="chips" id="kinds">
-  <button data-k="all" class="on">Tout</button>
-  <button data-k="audio">Sons</button>
-  <button data-k="video">Vidéos</button>
-  <button data-k="image">Images</button>
-</div>
-
-<div id="libstatus">Choisis un dossier (＋) pour commencer.</div>
-
-<div id="grid"></div>
-
-<div class="libfoot">
-  <span title="Action du double-clic (le glisser-déposer, lui, laisse Premiere décider)">2× clic :</span>
-  <div class="modes" id="libact">
+<div class="statusbar">
+  <input id="size" type="range" min="72" max="260" value="116" title="Taille des vignettes">
+  <span id="libstatus" class="msg">Ajoute un dossier avec ＋</span>
+  <div class="modes" id="libact" title="Action du double-clic">
     <button data-v="insert" class="on">insérer</button>
     <button data-v="overwrite">écraser</button>
     <button data-v="bin">chutier</button>
   </div>
-  <span class="sp"></span>
   <span>vol</span>
   <input id="vol" type="range" min="0" max="100" value="70">
 </div>
 
-<!-- ============================ VISIONNEUSE ============================ -->
 <div id="viewer">
   <div class="vbody" id="vbody"></div>
   <div class="vbar">
     <div class="vname" id="vname"></div>
-    <button class="ico" id="vadd" title="Importer dans Premiere">＋</button>
-    <button class="ico" id="vclose" title="Fermer">✕</button>
+    <button class="ghost" id="vadd" title="Importer dans Premiere">＋</button>
+    <button class="ghost" id="vclose" title="Fermer">✕</button>
   </div>
 </div>
 
-<!-- ======================= OVERLAY TELECHARGEMENT ===================== -->
 <div id="dloverlay" class="overlay">
   <div class="card">
-    <h2>Télécharger un média <button class="ico x" id="dlclose">✕</button></h2>
+    <h2>Télécharger un média <button class="ghost x" id="dlclose">✕</button></h2>
 
     <label class="t">Lien</label>
-    <input id="url" type="text" spellcheck="false"
-           placeholder="Colle un lien — YouTube, TikTok…">
+    <input id="url" type="text" spellcheck="false" placeholder="Colle un lien — YouTube, TikTok…">
 
     <label class="t">Format</label>
     <div class="seg" id="seg">
