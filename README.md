@@ -56,6 +56,11 @@ Composer (arborescence à gauche, grille à droite), sans limite d'éléments :
   ne sont pas encore chargées. `.dur` et `.pos` sont en `pointer-events:none`
   pour que le clic traverse jusqu'au visuel.
 - **Pas de filtre par type** : retiré à la demande, l'arbre suffit à cadrer.
+- **La visionneuse se ferme en cliquant dans le vide** autour du média, sans
+  passer par la croix. Le test `ev.target === this` sur `.vbody` garantit qu'on
+  ne ferme que sur le fond : un clic sur la vidéo ou sur ses contrôles de
+  lecture ne remonte pas jusqu'au gestionnaire. Même comportement que l'overlay
+  de téléchargement. `Échap` ferme aussi.
 - **MOGRT** : posés sur la timeline via `sequence.importMGT(path, time,
   vidTrackOffset, audTrackOffset)`. Il n'existe pas d'équivalent « déposer dans
   un chutier » pour un MOGRT, donc l'action *chutier* renvoie une erreur claire

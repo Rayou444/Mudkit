@@ -899,6 +899,14 @@ $("#vol").addEventListener("input", function (e) {
 $("#vclose").addEventListener("click", closeViewer);
 $("#vadd").addEventListener("click", function () { if (viewerItem) doImport(viewerItem); });
 
+/* Clic dans le vide autour du media = retour a la grille, sans passer par la
+   croix. Le test "ev.target === this" garantit qu'on ne ferme QUE sur le fond :
+   un clic sur la video elle-meme ou sur ses controles de lecture ne remonte
+   pas jusqu'ici. Meme comportement que l'overlay de telechargement. */
+$("#vbody").addEventListener("click", function (ev) {
+  if (ev.target === this) closeViewer();
+});
+
 /* splitter */
 (function () {
   var dragging = false;
