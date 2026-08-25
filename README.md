@@ -67,10 +67,10 @@ Composer (arborescence à gauche, grille à droite), sans limite d'éléments :
 - Scan récursif (12 niveaux) mis en cache par racine dans
   `%LOCALAPPDATA%\Mudkit\lib-cache\idx-*.json` — réouverture instantanée,
   `⟳` rescanne la racine sélectionnée (ou toutes si rien n'est sélectionné).
-- Aperçus ffmpeg générés à la demande et cachés : forme d'onde (audio, lue au
-  **survol**), poster (vidéo), et **sprite de 24 images** scrubé à la souris
-  au survol (clips ≤ 45 s : `fps`+`tile` ; au-delà : 24 seeks `-ss` avant `-i`
-  puis `hstack`, pour ne pas décoder tout le fichier). Clic = visionneuse.
+- Aperçus ffmpeg générés à la demande et cachés : forme d'onde (audio), poster
+  (vidéo), et **sprite de 24 images** scrubé à la souris au survol (clips
+  ≤ 45 s : `fps`+`tile` ; au-delà : 24 seeks `-ss` avant `-i` puis `hstack`,
+  pour ne pas décoder tout le fichier).
 - Les formats que Chromium ne lit pas (aif, wma, tiff, heic…) sont convertis à
   la volée pour l'aperçu ; le fichier d'origine reste celui qui est glissé.
 - Le manifest ajoute `--allow-file-access-from-files` : sans ça Chromium bloque
@@ -122,7 +122,9 @@ Deux conséquences, toutes les deux implémentées :
 Mesuré sur la bibliothèque réelle (43 425 items) : **1 537 / 1 538 vidéos
 (99,9 %)** et **810 / 844 images (96 %)** obtiennent un aperçu instantané —
 justement les plus coûteux à produire. Côté audio en revanche seulement
-22 / 41 043, donc les formes d'onde restent à notre charge : d'où `MAXJOBS = 4`.
+22 / 41 043, donc les formes d'onde restent à notre charge : d'où `MAXJOBS = 8`,
+les jobs de vignette en tête de file, et leur abandon dès que la tuile quitte
+le DOM (`job.el.isConnected`).
 
 Le fichier `settings.dat` de Mister Horse est chiffré ; il n'est **pas** lu ni
 déchiffré, et rien de leur code n'est repris.
