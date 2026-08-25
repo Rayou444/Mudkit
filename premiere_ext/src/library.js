@@ -35,7 +35,6 @@ var CACHE = LOCALAPP ? LOCALAPP + "\\Mudkit\\lib-cache" : null;
 var MAX_DEPTH = 12;
 var PAGE = 150;
 var SPRITE_N = 24;
-var HOVER_MS = 220;
 var SKIP_DIRS = { "node_modules":1, "$recycle.bin":1, ".git":1,
                   "system volume information":1, ".cache":1 };
 
@@ -56,13 +55,14 @@ var EXT = {};
 "mp3 wav flac m4a aac ogg opus aif aiff wma mka".split(" ").forEach(function (e) { EXT[e] = "audio"; });
 "mp4 mov mkv avi webm mxf m4v wmv mpg mpeg mts m2ts flv ts r3d braw".split(" ").forEach(function (e) { EXT[e] = "video"; });
 "jpg jpeg png gif webp bmp tif tiff avif heic heif svg tga dpx exr psd".split(" ").forEach(function (e) { EXT[e] = "image"; });
+EXT["mogrt"] = "mogrt";   // Motion Graphics Template : va sur la timeline via importMGT
 
 var WEB_AUDIO = { mp3:1, wav:1, flac:1, m4a:1, aac:1, ogg:1, opus:1, mka:1 };
 var WEB_IMAGE = { jpg:1, jpeg:1, png:1, gif:1, webp:1, bmp:1, svg:1, avif:1 };
 var WEB_VIDEO = { mp4:1, m4v:1, mov:1, webm:1 };
 
-var GLYPH  = { audio:"\u266A", video:"\u25B6", image:"\u25A3" };
-var BADGE  = { audio:"\u25CF", video:"\u25B6", image:"\u25A0" };
+var GLYPH  = { audio:"\u266A", video:"\u25B6", image:"\u25A3", mogrt:"\u25C6" };
+var BADGE  = { audio:"\u25CF", video:"\u25B6", image:"\u25A0", mogrt:"\u25C6" };
 var CHEV   = "\u25B8";        // chevron de l'arbre (tourne en CSS)
 var FOLDER = "\u25A2";        // petit carre = dossier
 var CHECK  = "\u2713";
@@ -85,7 +85,7 @@ var token = 0;
 
 var audio = new Audio();
 var playingTile = null;
-var hoverTimer = null;
+var selTile = null;
 
 /* -------------------------------- helpers ------------------------------ */
 
@@ -343,9 +343,9 @@ function computeView() {
 var io = null;
 
 function redraw() {
-  stopHoverPreview();
+  stopAudio();
   var g = $("#grid");
-  g.innerHTML = ""; rendered = 0;
+  g.innerHTML = ""; rendered = 0; selTile = null;
   if (io) io.disconnect();
   io = new IntersectionObserver(onVisible, { root:g, rootMargin:"300px" });
 
@@ -363,11 +363,12 @@ function redraw() {
 }
 
 function countLine() {
-  var n = { audio:0, video:0, image:0 };
+  var n = { audio:0, video:0, image:0, mogrt:0 };
   view.forEach(function (i) { n[i.k]++; });
   var where = query.trim() ? "\u00AB " + query.trim() + " \u00BB" : (sel ? "" : "tout");
   say(view.length + " elements " + (where ? where + " " : "") +
-      "- " + n.audio + " sons, " + n.video + " videos, " + n.image + " images", "ok");
+      "- " + n.audio + " sons, " + n.video + " videos, " + n.image + " images" +
+      (n.mogrt ? ", " + n.mogrt + " mogrt" : ""), "ok");
 }
 
 function renderMore() {
@@ -435,16 +436,9 @@ function tile(it) {
     if (favOnly) redraw();
   });
   add.addEventListener("click", function (ev) { ev.stopPropagation(); doImport(it); });
-  el.addEventListener("click", function () { preview(el, it); });
+  el.addEventListener("click", function () { selectTile(el); preview(el, it); });
   el.addEventListener("dblclick", function () { doImport(it); });
 
-  if (it.k === "audio") {
-    el.addEventListener("mouseenter", function () {
-      clearTimeout(hoverTimer);
-      hoverTimer = setTimeout(function () { if (el.matches(":hover")) playAudio(el, it, true); }, HOVER_MS);
-    });
-    el.addEventListener("mouseleave", function () { clearTimeout(hoverTimer); if (el._hoverPlay) stopAudio(); });
-  }
   if (it.k === "video") {
     el.addEventListener("mouseenter", function () {
       if (el.dataset.vsprite) return attachVSprite(el);   // sprite Mister Horse
@@ -521,6 +515,7 @@ function useMH(el, it, cb) {
 
 function thumbGenerate(el) {
   var it = el._it; if (!it) return;
+  if (it.k === "mogrt") return;      // rien a extraire : on garde le glyphe
   var key = keyOf(it);
 
   if (it.k === "image") {
@@ -619,10 +614,9 @@ function stopAudio() {
   try { audio.pause(); } catch (e) {}
   if (playingTile) {
     var b = playingTile.querySelector(".pos"); if (b) b.remove();
-    playingTile.classList.remove("playing"); playingTile._hoverPlay = false; playingTile = null;
+    playingTile.classList.remove("playing"); playingTile = null;
   }
 }
-function stopHoverPreview() { clearTimeout(hoverTimer); if (playingTile && playingTile._hoverPlay) stopAudio(); }
 
 audio.addEventListener("timeupdate", function () {
   if (!playingTile || !audio.duration) return;
@@ -631,10 +625,10 @@ audio.addEventListener("timeupdate", function () {
 });
 audio.addEventListener("ended", stopAudio);
 
-function playAudio(el, it, hover) {
-  if (playingTile === el && !hover) return stopAudio();
+function playAudio(el, it) {
+  if (playingTile === el) return stopAudio();   // reclic = stop
   stopAudio();
-  playingTile = el; el._hoverPlay = !!hover;
+  playingTile = el;
   el.classList.add("playing");
   var b = document.createElement("div"); b.className = "pos"; el.querySelector(".th").appendChild(b);
   audio.volume = (+$("#vol").value) / 100;
@@ -645,7 +639,6 @@ function playAudio(el, it, hover) {
     audio.onerror = null;
     var pv = cachePath("pv", keyOf(it), ".mp3");
     if (fs.existsSync(pv)) return start(fileUrl(pv));
-    if (hover) return;
     say("Conversion pour l'ecoute (" + it.e + ")...");
     run(FFMPEG, ["-v","error","-i",it.p,"-vn","-ac","2","-b:a","192k","-y",pv],
       function (err) { if (!err && fs.existsSync(pv) && playingTile === el) start(fileUrl(pv)); });
@@ -686,8 +679,14 @@ function closeViewer() {
   var v = $("#vbody").querySelector("video"); if (v) { try { v.pause(); } catch (e) {} }
   $("#vbody").innerHTML = ""; $("#viewer").classList.remove("on"); viewerItem = null;
 }
+function selectTile(el) {
+  if (selTile === el) return;
+  if (selTile) selTile.classList.remove("sel");
+  selTile = el; el.classList.add("sel");
+}
+
 function preview(el, it) {
-  if (it.k === "audio") return playAudio(el, it, false);
+  if (it.k === "audio") return playAudio(el, it);
   stopAudio(); openViewer(it);
 }
 
@@ -701,6 +700,8 @@ function doImport(it) {
       if (res === "inserted") say(CHECK + " " + it.n + " pose sur la timeline", "ok");
       else if (res === "imported") say(CHECK + " " + it.n + " dans le chutier " + bin, "ok");
       else if (res === "imported_no_seq") say(CHECK + " Importe (aucune sequence active)", "ok");
+      else if (res === "mogrt_needs_sequence") say("Un MOGRT exige une sequence active.", "err");
+      else if (res === "mogrt_no_bin") say("Les MOGRT vont directement sur la timeline, pas dans un chutier.", "err");
       else if (res && res.indexOf("imported_insert_failed") === 0) say("Importe, insertion impossible : " + res.split(":").slice(1).join(":"), "err");
       else say("Import echoue : " + res, "err");
     });

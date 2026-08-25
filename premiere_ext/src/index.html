@@ -131,6 +131,9 @@
     border:1px solid var(--line); border-radius:3px; overflow:hidden;
   }
   .tile:hover .th { border-color:var(--accent); }
+  /* element selectionne : le cadre reste, comme dans Animation Composer */
+  .tile.sel .th { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+  .tile.sel .meta .nm { color:#FFF; }
   .tile.playing .th { border-color:var(--green); }
   .tile .glyph {
     position:absolute; left:0; right:0; top:0; bottom:0;
@@ -155,6 +158,7 @@
   .meta .badge.audio { color:#4FB477; }
   .meta .badge.video { color:#5B9BE8; }
   .meta .badge.image { color:#B07BD4; }
+  .meta .badge.mogrt { color:#E0A32E; }
   .meta .nm {
     flex:1; min-width:0; font-size:10.5px; color:var(--text);
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
@@ -291,6 +295,7 @@
       <button data-k="audio" title="Sons">♪</button>
       <button data-k="video" title="Videos">▶</button>
       <button data-k="image" title="Images">▣</button>
+      <button data-k="mogrt" title="Motion Graphics Templates">◆</button>
     </div>
     <div class="tree" id="tree"></div>
   </div>

@@ -33,10 +33,35 @@ function mudkitFindItem(root, mediaPath) {
 }
 
 var MUDKIT_AUDIO_RE = /\.(mp3|wav|m4a|aac|flac|ogg|opus|aif|aiff|wma|mka)$/i;
+var MUDKIT_MOGRT_RE = /\.mogrt$/i;
+
+/* Un MOGRT ne s'importe pas comme un media : il passe par
+   sequence.importMGT(path, time, vidTrackOffset, audTrackOffset), qui le pose
+   directement sur la timeline et renvoie un TrackItem. Il n'existe pas
+   d'equivalent "poser dans un chutier". */
+function mudkitPlaceMogrt(path, action) {
+  if (action === "bin") return "mogrt_no_bin";
+  var seq = app.project.activeSequence;
+  if (!seq) return "mogrt_needs_sequence";
+  var t = seq.getPlayerPosition();
+  var item = null;
+  try {
+    item = seq.importMGT(path, t.ticks, 0, 0);
+  } catch (e1) {
+    try {
+      item = seq.importMGT(path, t, 0, 0);
+    } catch (e2) {
+      return "imported_insert_failed:" + e2.toString();
+    }
+  }
+  if (!item) return "imported_insert_failed:importMGT n'a rien renvoye";
+  return "inserted";
+}
 
 /* Coeur commun : importe le fichier dans "bin" puis applique l'action.
    action : "insert" | "overwrite" | "bin" */
 function mudkitPlace(path, action, bin) {
+  if (MUDKIT_MOGRT_RE.test(path)) return mudkitPlaceMogrt(path, action);
   var item = mudkitFindItem(bin, path) ||
              mudkitFindItem(app.project.rootItem, path);
   if (!item) {

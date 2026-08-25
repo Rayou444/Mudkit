@@ -44,6 +44,15 @@ Composer (arborescence à gauche, grille à droite), sans limite d'éléments :
   direct en secours ([régression Adobe connue](https://github.com/Adobe-CEP/CEP-Resources/issues/483)).
 - **Favoris ★** sur chaque vignette (persistés) + bouton ★ en haut de la
   barre latérale pour ne montrer que les favoris.
+- **Tout se déclenche au clic, jamais au survol.** Clic sur un son = lecture,
+  re-clic = stop ; clic sur une image/vidéo = visionneuse. La tuile
+  sélectionnée garde un cadre bleu. Seule exception au survol : le **scrub**
+  des vignettes vidéo, qui ne lance aucune lecture (c'est le geste signature
+  d'Animation Composer).
+- **MOGRT** : posés sur la timeline via `sequence.importMGT(path, time,
+  vidTrackOffset, audTrackOffset)`. Il n'existe pas d'équivalent « déposer dans
+  un chutier » pour un MOGRT, donc l'action *chutier* renvoie une erreur claire
+  et il faut une séquence active.
 - **Slider de taille des vignettes** en bas à gauche (pilote `--tw`), et
   **splitter** redimensionnable entre l'arbre et la grille.
 - Recherche : elle traverse **toutes** les racines montées, en ignorant la
