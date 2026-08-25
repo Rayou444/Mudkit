@@ -4,8 +4,7 @@
 <meta charset="utf-8">
 <title>Mudkit</title>
 <style>
-  /* Style calque sur Premiere Pro : le fond s'adapte au theme Apparence
-     de l'utilisateur (lu au demarrage), controles style Adobe. */
+  /* Theme calque sur Premiere (lu au demarrage via appSkinInfo, panel.js). */
   :root {
     --bg: #232323;
     --panel: #2D2D2D;
@@ -32,202 +31,23 @@
     overflow: hidden;
   }
   input[type=text] { user-select: text; }
-
-  /* ------------------------------- onglets ------------------------------ */
-
-  .tabs {
-    display: flex;
-    flex: 0 0 auto;
-    border-bottom: 1px solid var(--line);
-    background: var(--panel);
-  }
-  .tabs button {
-    flex: 1;
-    font: inherit;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: .4px;
-    text-transform: uppercase;
-    color: var(--dim);
-    background: transparent;
-    border: 0;
-    border-bottom: 2px solid transparent;
-    padding: 8px 4px 7px;
-    cursor: pointer;
-  }
-  .tabs button:hover { color: var(--text); }
-  .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
-
-  .page { display: none; flex: 1 1 auto; min-height: 0; }
-  .page.on { display: flex; flex-direction: column; }
-
-  #page-dl { padding: 12px; overflow: auto; }
-
-  /* ---------------------------- controles communs ---------------------- */
-
-  label.t {
-    display: block;
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: .8px;
-    text-transform: uppercase;
-    color: var(--dim);
-    margin: 12px 0 5px;
-  }
-  label.t:first-of-type { margin-top: 2px; }
-
-  input[type=text] {
-    width: 100%;
-    font: inherit;
-    color: var(--text);
-    background: var(--input);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 6px 8px;
-    outline: none;
-  }
-  input[type=text]:focus { border-color: var(--accent); }
-  input::placeholder { color: #6E6E6E; }
-
-  .seg { display: grid; gap: 5px; }
-  .seg.h { grid-auto-flow: column; grid-auto-columns: 1fr; }
-  .seg button {
-    font: inherit;
-    font-size: 11.5px;
-    color: var(--text);
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 6px 8px;
-    cursor: pointer;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .seg button:hover { background: var(--panel-h); }
-  .seg button.on {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #FFFFFF;
-  }
-
-  .check {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    margin-top: 12px;
-    cursor: pointer;
-    font-size: 12px;
-  }
-  .check input { accent-color: var(--accent); width: 14px; height: 14px; }
-
-  .cta {
-    width: 100%;
-    margin-top: 14px;
-    font: inherit;
-    font-size: 12.5px;
-    font-weight: 600;
-    color: #FFFFFF;
-    background: var(--accent);
-    border: 1px solid transparent;
-    border-radius: 4px;
-    padding: 8px;
-    cursor: pointer;
-  }
-  .cta:hover { background: var(--accent-h); }
-  .cta:disabled { opacity: .4; cursor: default; }
-
-  .btn {
-    width: 100%;
-    margin-top: 6px;
-    font: inherit;
-    font-size: 12px;
-    color: var(--text);
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 7px;
-    cursor: pointer;
-  }
-  .btn:hover { background: var(--panel-h); }
-
-  .bar {
-    height: 4px;
-    border-radius: 2px;
-    background: var(--input);
-    border: 1px solid var(--line);
-    overflow: hidden;
-    margin-top: 12px;
-  }
-  .bar i {
-    display: block;
-    height: 100%;
-    width: 0;
-    background: var(--accent);
-    transition: width .25s;
-  }
-  .bar.indet i {
-    width: 30% !important;
-    animation: indet 1.1s ease-in-out infinite alternate;
-  }
-  @keyframes indet {
-    from { transform: translateX(-40%); }
-    to   { transform: translateX(280%); }
-  }
-
-  #status {
-    margin-top: 8px;
-    color: var(--dim);
-    font-size: 11.5px;
-    line-height: 1.5;
-    word-break: break-word;
-  }
-  #status.ok { color: var(--green); }
-  #status.err { color: var(--red); }
-
-  .cutrow {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 7px;
-  }
-  .cutrow input { flex: 1; min-width: 0; }
-  .cutrow span { color: var(--dim); }
-
-  .foot {
-    margin-top: 12px;
-    font-size: 10px;
-    color: #6E6E6E;
-  }
-  .foot a { color: var(--dim); }
-  .foot a:hover { color: var(--text); }
   .hidden { display: none !important; }
 
-  /* ---------------------------- bibliotheque --------------------------- */
+  /* ------------------------------ barre haut ---------------------------- */
 
-  .libhead {
+  .bar {
     flex: 0 0 auto;
-    padding: 8px 8px 6px;
-    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 7px;
     background: var(--panel);
+    border-bottom: 1px solid var(--line);
   }
-  .row { display: flex; gap: 5px; align-items: center; }
-  .row + .row { margin-top: 5px; }
-  .row > input[type=text] { flex: 1; min-width: 0; }
+  .bar + .bar { padding-top: 0; border-bottom: 1px solid var(--line); }
+  .bar2 { padding-top: 6px; }
 
-  select#folders {
-    flex: 1;
-    min-width: 0;
-    font: inherit;
-    font-size: 11.5px;
-    color: var(--text);
-    background: var(--input);
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 5px 6px;
-    outline: none;
-  }
-  .icobtn {
+  .ico {
     flex: 0 0 auto;
     font: inherit;
     font-size: 12px;
@@ -239,25 +59,80 @@
     padding: 6px 8px;
     cursor: pointer;
   }
-  .icobtn:hover { background: var(--accent); border-color: var(--accent); color: #FFF; }
+  .ico:hover { background: var(--accent); border-color: var(--accent); color: #FFF; }
+  .ico.on { background: var(--accent); border-color: var(--accent); color: #FFF; }
+  .dlbtn { margin-left: auto; }
 
-  .chips { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; }
+  .crumb {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: 11.5px;
+  }
+  .crumb .seg {
+    color: var(--dim);
+    cursor: pointer;
+    max-width: 130px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .crumb .seg:hover { color: var(--text); }
+  .crumb .seg.last { color: var(--text); cursor: default; }
+  .crumb .sep { color: #5A5A5A; flex: 0 0 auto; }
+
+  select#folders {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 150px;
+    font: inherit;
+    font-size: 11.5px;
+    color: var(--text);
+    background: var(--input);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 5px 6px;
+    outline: none;
+  }
+
+  .search {
+    flex: 1 1 auto;
+    min-width: 0;
+    font: inherit;
+    color: var(--text);
+    background: var(--input);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 6px 8px;
+    outline: none;
+  }
+  .search:focus { border-color: var(--accent); }
+  .search::placeholder { color: #6E6E6E; }
+
+  .chips {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 4px;
+    padding: 6px 7px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
   .chips button {
+    flex: 1;
     font: inherit;
     font-size: 11px;
     color: var(--dim);
     background: var(--input);
     border: 1px solid var(--line);
     border-radius: 10px;
-    padding: 3px 9px;
+    padding: 3px 4px;
     cursor: pointer;
   }
   .chips button:hover { color: var(--text); }
-  .chips button.on {
-    color: #FFF;
-    background: var(--accent);
-    border-color: var(--accent);
-  }
+  .chips button.on { color: #FFF; background: var(--accent); border-color: var(--accent); }
 
   #libstatus {
     flex: 0 0 auto;
@@ -272,20 +147,35 @@
   #libstatus.err { color: var(--red); }
   #libstatus.ok { color: var(--green); }
 
+  /* -------------------------------- grille ------------------------------ */
+
   #grid {
     flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
     padding: 8px;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(94px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
     gap: 7px;
     align-content: start;
   }
-  #grid.list {
-    grid-template-columns: 1fr;
-    gap: 2px;
+  #grid.list { grid-template-columns: 1fr; gap: 2px; }
+
+  .folder {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    grid-column: 1 / -1;
+    padding: 7px 8px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    cursor: pointer;
   }
+  .folder:hover { background: var(--panel-h); border-color: var(--accent); }
+  .folder .fi { font-size: 15px; color: var(--accent); flex: 0 0 auto; }
+  .folder .fn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .folder .fc { flex: 0 0 auto; font-size: 10px; color: var(--dim); }
 
   .tile {
     position: relative;
@@ -293,8 +183,9 @@
     border: 1px solid var(--line);
     border-radius: 4px;
     overflow: hidden;
-    cursor: pointer;
+    cursor: grab;
   }
+  .tile:active { cursor: grabbing; }
   .tile:hover { border-color: var(--accent); }
   .tile.playing { border-color: var(--green); }
   .tile .th {
@@ -305,227 +196,241 @@
     background-size: cover;
     overflow: hidden;
   }
-  .tile .th.sprite { background-size: auto 100%; background-repeat: no-repeat; }
+  .tile .th.sprite { background-repeat: no-repeat; }
   .tile .glyph {
     position: absolute;
     left: 0; right: 0; top: 0; bottom: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 19px;
-    color: #4A4A4A;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 19px; color: #4A4A4A;
   }
   .tile .nm {
     padding: 3px 4px 4px;
-    font-size: 10px;
-    line-height: 1.25;
+    font-size: 10px; line-height: 1.25;
     color: var(--text);
-    height: 27px;
-    overflow: hidden;
-    word-break: break-word;
+    height: 27px; overflow: hidden; word-break: break-word;
   }
   .tile .dur {
-    position: absolute;
-    right: 3px;
-    bottom: 3px;
-    font-size: 9px;
-    padding: 0 3px;
-    border-radius: 2px;
-    background: rgba(0,0,0,.72);
-    color: #EEE;
+    position: absolute; right: 3px; bottom: 3px;
+    font-size: 9px; padding: 0 3px; border-radius: 2px;
+    background: rgba(0,0,0,.72); color: #EEE;
   }
   .tile .add {
-    position: absolute;
-    left: 3px;
-    top: 3px;
-    width: 17px;
-    height: 17px;
-    line-height: 15px;
-    text-align: center;
-    font-size: 13px;
-    border-radius: 3px;
-    background: rgba(0,0,0,.6);
-    color: #FFF;
-    opacity: 0;
-    transition: opacity .12s;
+    position: absolute; left: 3px; top: 3px;
+    width: 17px; height: 17px; line-height: 15px; text-align: center;
+    font-size: 13px; border-radius: 3px;
+    background: rgba(0,0,0,.6); color: #FFF; opacity: 0; transition: opacity .12s;
   }
   .tile:hover .add { opacity: 1; }
   .tile .add:hover { background: var(--accent); }
-  .tile .pos {
-    position: absolute;
-    left: 0; bottom: 0;
-    height: 2px;
-    background: var(--green);
-    width: 0;
-  }
+  .tile .pos { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--green); width: 0; }
 
-  /* mode liste compact */
   #grid.list .tile { display: flex; align-items: center; gap: 7px; padding: 2px; }
   #grid.list .tile .th { width: 62px; padding-top: 0; height: 34px; flex: 0 0 auto; border-radius: 3px; }
   #grid.list .tile .nm { height: auto; flex: 1; min-width: 0; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; }
   #grid.list .tile .dur { position: static; background: none; color: var(--dim); margin-right: 4px; }
   #grid.list .tile .add { position: static; opacity: .6; flex: 0 0 auto; margin-right: 3px; }
 
-  #more {
-    grid-column: 1 / -1;
-    text-align: center;
-    color: #6E6E6E;
-    font-size: 11px;
-    padding: 8px;
+  #more { grid-column: 1 / -1; text-align: center; color: #6E6E6E; font-size: 11px; padding: 8px; }
+
+  .empty {
+    grid-column: 1 / -1; padding: 26px 14px; text-align: center;
+    color: #6E6E6E; font-size: 11.5px; line-height: 1.6;
   }
+  .empty b { color: var(--text); }
+
+  /* -------------------------------- footer ------------------------------ */
 
   .libfoot {
     flex: 0 0 auto;
-    padding: 7px 8px;
-    border-top: 1px solid var(--line);
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px;
     background: var(--panel);
+    border-top: 1px solid var(--line);
+    font-size: 10px; color: #6E6E6E;
   }
-  .hint { margin-top: 5px; font-size: 9.5px; color: #6E6E6E; line-height: 1.45; }
-
-  .empty {
-    grid-column: 1 / -1;
-    padding: 26px 14px;
-    text-align: center;
-    color: #6E6E6E;
-    font-size: 11.5px;
-    line-height: 1.6;
+  .libfoot .modes { display: flex; gap: 3px; }
+  .libfoot .modes button {
+    font: inherit; font-size: 10px; color: var(--dim);
+    background: var(--input); border: 1px solid var(--line);
+    border-radius: 3px; padding: 3px 6px; cursor: pointer;
   }
+  .libfoot .modes button.on { color: #FFF; background: var(--accent); border-color: var(--accent); }
+  .libfoot .sp { flex: 1; }
+  .libfoot input[type=range] { width: 62px; accent-color: var(--accent); vertical-align: middle; }
 
-  /* visionneuse plein panneau (images / video) */
+  /* ----------------------------- visionneuse ---------------------------- */
+
   #viewer {
-    position: fixed;
-    left: 0; right: 0; top: 0; bottom: 0;
-    background: rgba(0,0,0,.93);
-    display: none;
-    flex-direction: column;
-    z-index: 20;
+    position: fixed; left: 0; right: 0; top: 0; bottom: 0;
+    background: rgba(0,0,0,.93); display: none; flex-direction: column; z-index: 20;
   }
   #viewer.on { display: flex; }
-  #viewer .vbody {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 8px;
-  }
+  #viewer .vbody { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; }
   #viewer img, #viewer video { max-width: 100%; max-height: 100%; }
-  #viewer .vmsg { color: #6E6E6E; font-size: 11.5px; text-align: center; line-height: 1.6; padding: 0 16px; }
-  #viewer .vbar {
-    flex: 0 0 auto;
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    padding: 7px 8px;
-    background: var(--panel);
-    border-top: 1px solid var(--line);
+  #viewer .vmsg { color: #9A9A9A; font-size: 11.5px; text-align: center; line-height: 1.6; padding: 0 16px; }
+  #viewer .vbar { flex: 0 0 auto; display: flex; gap: 6px; align-items: center; padding: 7px 8px; background: var(--panel); border-top: 1px solid var(--line); }
+  #viewer .vname { flex: 1; min-width: 0; font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* --------------------------- overlay download ------------------------- */
+
+  .overlay {
+    position: fixed; left: 0; right: 0; top: 0; bottom: 0;
+    background: rgba(0,0,0,.5); display: none;
+    align-items: flex-start; justify-content: center; z-index: 30;
+    padding: 10px;
   }
-  #viewer .vname {
-    flex: 1;
-    min-width: 0;
-    font-size: 11px;
-    color: var(--dim);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .overlay.on { display: flex; }
+  .card {
+    width: 100%; max-width: 420px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 12px;
+    box-shadow: 0 10px 40px rgba(0,0,0,.5);
+    max-height: 100%; overflow: auto;
   }
+  .card h2 {
+    display: flex; align-items: center;
+    font-size: 12px; font-weight: 600; letter-spacing: .3px;
+    text-transform: uppercase; color: var(--dim); margin-bottom: 4px;
+  }
+  .card h2 .x { margin-left: auto; }
+
+  label.t {
+    display: block; font-size: 10px; font-weight: 600; letter-spacing: .8px;
+    text-transform: uppercase; color: var(--dim); margin: 12px 0 5px;
+  }
+  input#url {
+    width: 100%; font: inherit; color: var(--text);
+    background: var(--input); border: 1px solid var(--line);
+    border-radius: 4px; padding: 6px 8px; outline: none;
+  }
+  input#url:focus { border-color: var(--accent); }
+  input#url::placeholder { color: #6E6E6E; }
+  .seg { display: grid; gap: 5px; }
+  .seg button {
+    font: inherit; font-size: 11.5px; color: var(--text);
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 4px; padding: 6px 8px; cursor: pointer;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .seg button:hover { background: var(--panel-h); }
+  .seg button.on { background: var(--accent); border-color: var(--accent); color: #FFF; }
+  .check { display: flex; align-items: center; gap: 7px; margin-top: 12px; cursor: pointer; font-size: 12px; }
+  .check input { accent-color: var(--accent); width: 14px; height: 14px; }
+  .cutrow { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
+  .cutrow input { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--input); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; outline: none; }
+  .cutrow span { color: var(--dim); }
+  .cta { width: 100%; margin-top: 14px; font: inherit; font-size: 12.5px; font-weight: 600; color: #FFF; background: var(--accent); border: 1px solid transparent; border-radius: 4px; padding: 8px; cursor: pointer; }
+  .cta:hover { background: var(--accent-h); }
+  .cta:disabled { opacity: .4; cursor: default; }
+  .btn { width: 100%; margin-top: 6px; font: inherit; font-size: 12px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 7px; cursor: pointer; }
+  .btn:hover { background: var(--panel-h); }
+  .bar-pg { height: 4px; border-radius: 2px; background: var(--input); border: 1px solid var(--line); overflow: hidden; margin-top: 12px; }
+  .bar-pg i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s; }
+  .bar-pg.indet i { width: 30% !important; animation: indet 1.1s ease-in-out infinite alternate; }
+  @keyframes indet { from { transform: translateX(-40%); } to { transform: translateX(280%); } }
+  #status { margin-top: 8px; color: var(--dim); font-size: 11.5px; line-height: 1.5; word-break: break-word; }
+  #status.ok { color: var(--green); }
+  #status.err { color: var(--red); }
+  .foot { margin-top: 12px; font-size: 10px; color: #6E6E6E; }
+  .foot a { color: var(--dim); }
+  .foot a:hover { color: var(--text); }
 </style>
 </head>
 <body>
 
-<div class="tabs">
-  <button class="tab on" data-p="dl">Télécharger</button>
-  <button class="tab" data-p="lib">Bibliothèque</button>
+<!-- ============================ GESTIONNAIRE =========================== -->
+<div class="bar bar1">
+  <button id="back" class="ico hidden" title="Dossier parent">◀</button>
+  <select id="folders" title="Dossiers mémorisés"></select>
+  <div id="crumb" class="crumb"></div>
+  <button id="pick" class="ico" title="Ajouter un dossier">＋</button>
+  <button id="rescan" class="ico" title="Rescanner le dossier">⟳</button>
+  <button id="dl" class="ico dlbtn" title="Télécharger un média">⬇</button>
 </div>
 
-<!-- ====================== ONGLET TELECHARGEMENT ======================= -->
-<section id="page-dl" class="page on">
+<div class="bar bar2">
+  <input id="q" class="search" type="text" spellcheck="false"
+         placeholder="Rechercher dans tout le dossier…">
+  <button id="viewmode" class="ico" title="Vignettes / liste">▤</button>
+  <button id="forget" class="ico" title="Retirer ce dossier de la liste">−</button>
+</div>
 
-  <label class="t">Lien</label>
-  <input id="url" type="text" spellcheck="false"
-         placeholder="Colle un lien — YouTube, TikTok…">
+<div class="chips" id="kinds">
+  <button data-k="all" class="on">Tout</button>
+  <button data-k="audio">Sons</button>
+  <button data-k="video">Vidéos</button>
+  <button data-k="image">Images</button>
+</div>
 
-  <label class="t">Format</label>
-  <div class="seg" id="seg">
-    <button data-v="h264" class="on">MP4 · 1080p montage (H.264)</button>
-    <button data-v="max">MP4 · qualité max (4K, converti si besoin)</button>
-    <button data-v="mp3">MP3 · audio seul</button>
+<div id="libstatus">Choisis un dossier (＋) pour commencer.</div>
+
+<div id="grid"></div>
+
+<div class="libfoot">
+  <span title="Action du double-clic (le glisser-déposer, lui, laisse Premiere décider)">2× clic :</span>
+  <div class="modes" id="libact">
+    <button data-v="insert" class="on">insérer</button>
+    <button data-v="overwrite">écraser</button>
+    <button data-v="bin">chutier</button>
   </div>
+  <span class="sp"></span>
+  <span>vol</span>
+  <input id="vol" type="range" min="0" max="100" value="70">
+</div>
 
-  <label class="check">
-    <input type="checkbox" id="cut">
-    Passage seulement (début → fin)
-  </label>
-  <div id="cutrow" class="cutrow hidden">
-    <input id="t-in" type="text" spellcheck="false" placeholder="0:00">
-    <span>→</span>
-    <input id="t-out" type="text" spellcheck="false" placeholder="1:30">
-  </div>
-
-  <label class="t">À l'import</label>
-  <div class="seg" id="act">
-    <button data-v="insert" class="on">Timeline · insérer au curseur</button>
-    <button data-v="overwrite">Timeline · écraser au curseur</button>
-    <button data-v="bin">Chutier « Mudkit » seulement</button>
-  </div>
-
-  <button id="go" class="cta">Télécharger et importer</button>
-  <button id="cancel" class="btn hidden">Annuler</button>
-
-  <div class="bar hidden" id="bar"><i></i></div>
-  <div id="status"></div>
-
-  <div class="foot">Mudkit · fichiers dans Vidéos\Mudkit\Premiere ·
-    <a id="upd" href="#">MàJ yt-dlp</a></div>
-
-</section>
-
-<!-- ======================= ONGLET BIBLIOTHEQUE ======================== -->
-<section id="page-lib" class="page">
-
-  <div class="libhead">
-    <div class="row">
-      <select id="folders"><option value="">Aucun dossier</option></select>
-      <button class="icobtn" id="pick" title="Ajouter un dossier">+</button>
-      <button class="icobtn" id="forget" title="Retirer ce dossier de la liste">−</button>
-      <button class="icobtn" id="rescan" title="Rescanner le dossier">⟳</button>
-    </div>
-    <div class="row">
-      <input id="q" type="text" spellcheck="false"
-             placeholder="Rechercher (nom ou sous-dossier)…">
-      <button class="icobtn" id="viewmode" title="Vignettes / liste">▤</button>
-    </div>
-    <div class="chips" id="kinds">
-      <button data-k="all" class="on">Tout</button>
-      <button data-k="audio">Sons</button>
-      <button data-k="video">Vidéos</button>
-      <button data-k="image">Images</button>
-    </div>
-  </div>
-
-  <div id="libstatus">Choisis un dossier pour commencer.</div>
-
-  <div id="grid"></div>
-
-  <div class="libfoot">
-    <div class="seg h" id="libact">
-      <button data-v="insert" class="on">Insérer</button>
-      <button data-v="overwrite">Écraser</button>
-      <button data-v="bin">Chutier</button>
-    </div>
-    <div class="hint">Clic = écouter / voir · <b>+</b> ou double-clic = importer ·
-      volume <input id="vol" type="range" min="0" max="100" value="70"
-      style="vertical-align:middle;width:60px;accent-color:var(--accent)"></div>
-  </div>
-
-</section>
-
+<!-- ============================ VISIONNEUSE ============================ -->
 <div id="viewer">
   <div class="vbody" id="vbody"></div>
   <div class="vbar">
     <div class="vname" id="vname"></div>
-    <button class="icobtn" id="vadd" title="Importer dans Premiere">+</button>
-    <button class="icobtn" id="vclose" title="Fermer">✕</button>
+    <button class="ico" id="vadd" title="Importer dans Premiere">＋</button>
+    <button class="ico" id="vclose" title="Fermer">✕</button>
+  </div>
+</div>
+
+<!-- ======================= OVERLAY TELECHARGEMENT ===================== -->
+<div id="dloverlay" class="overlay">
+  <div class="card">
+    <h2>Télécharger un média <button class="ico x" id="dlclose">✕</button></h2>
+
+    <label class="t">Lien</label>
+    <input id="url" type="text" spellcheck="false"
+           placeholder="Colle un lien — YouTube, TikTok…">
+
+    <label class="t">Format</label>
+    <div class="seg" id="seg">
+      <button data-v="h264" class="on">MP4 · 1080p montage (H.264)</button>
+      <button data-v="max">MP4 · qualité max (4K, converti si besoin)</button>
+      <button data-v="mp3">MP3 · audio seul</button>
+    </div>
+
+    <label class="check">
+      <input type="checkbox" id="cut">
+      Passage seulement (début → fin)
+    </label>
+    <div id="cutrow" class="cutrow hidden">
+      <input id="t-in" type="text" spellcheck="false" placeholder="0:00">
+      <span>→</span>
+      <input id="t-out" type="text" spellcheck="false" placeholder="1:30">
+    </div>
+
+    <label class="t">À l'import</label>
+    <div class="seg" id="act">
+      <button data-v="insert" class="on">Timeline · insérer au curseur</button>
+      <button data-v="overwrite">Timeline · écraser au curseur</button>
+      <button data-v="bin">Chutier « Mudkit » seulement</button>
+    </div>
+
+    <button id="go" class="cta">Télécharger et importer</button>
+    <button id="cancel" class="btn hidden">Annuler</button>
+
+    <div class="bar-pg hidden" id="bar"><i></i></div>
+    <div id="status"></div>
+
+    <div class="foot">Fichiers dans Vidéos\Mudkit\Premiere ·
+      <a id="upd" href="#">MàJ yt-dlp</a></div>
   </div>
 </div>
 

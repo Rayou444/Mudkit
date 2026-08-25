@@ -27,29 +27,38 @@ manque un, l'accueil propose de l'installer en un clic.
 ## Panneau Premiere Pro
 
 Extension CEP `com.mudkit.premiere` (source dans `premiere_ext/src/`), ouverte
-depuis **Fenêtre → Extensions → Mudkit**. Deux onglets :
+depuis **Fenêtre → Extensions → Mudkit**. Pensée pour remplacer la *User
+Library* de Mister Horse (dont le plan gratuit plafonne à 500 éléments). Une
+seule page : le **gestionnaire de médias** s'ouvre directement ; le
+téléchargeur est derrière le bouton **⬇** en haut à droite.
 
-**Télécharger** — colle un lien, le fichier est téléchargé par le moteur Mudkit
-(`premiere_dl.py`), converti en H.264/AAC si Premiere ne sait pas lire le codec,
-puis importé dans le chutier « Mudkit » et posé sur la timeline au curseur.
+**Gestionnaire (`library.js`)** — navigateur de dossiers local, sans limite :
 
-**Bibliothèque** — navigateur de médias locaux, sans limite d'éléments :
-
-- `+` choisit un dossier, scanné récursivement (10 niveaux) ; plusieurs dossiers
-  peuvent être mémorisés, on bascule avec la liste déroulante.
-- Le résultat du scan est mis en cache dans
-  `%LOCALAPPDATA%\Mudkit\lib-cache\idx-*.json` : réouverture instantanée,
-  `⟳` pour rescanner.
+- **⬇ drag-and-drop** : on glisse une vignette directement sur la timeline (ou
+  le chutier). Drag natif CEP via `event.dataTransfer.setData(
+  'com.adobe.cep.dnd.file.0', chemin)` — c'est Premiere qui place le clip, exactement
+  comme Mister Horse. **Double-clic** = import direct en secours (au cas où le
+  DnD est bloqué sur une version de Premiere ; régression connue côté Adobe,
+  [issue #483](https://github.com/Adobe-CEP/CEP-Resources/issues/483)).
+- `＋` ajoute un dossier racine (mémorisé, on bascule avec la liste déroulante),
+  scanné récursivement (12 niveaux). Navigation par **fil d'Ariane** : on entre
+  dans les sous-dossiers, `◀` remonte.
+- Scan mis en cache dans `%LOCALAPPDATA%\Mudkit\lib-cache\idx-*.json` :
+  réouverture instantanée, `⟳` pour rescanner. Recherche plein-dossier,
+  filtres son / vidéo / image.
 - Aperçus générés à la demande par le ffmpeg de `bin/` et mis en cache :
-  forme d'onde pour l'audio, image de poster pour la vidéo, et un **sprite de
-  24 images** que la souris scrube au survol de la vignette (clips ≤ 45 s :
-  `fps`+`tile` ; au-delà : 24 seeks `-ss` avant `-i` puis `hstack`, pour ne pas
-  décoder le fichier entier).
-- Clic = écoute / visionne · `+` ou double-clic = importe dans Premiere selon
-  l'action choisie en bas (insérer / écraser / chutier). Le chutier prend le nom
-  du dossier de la bibliothèque.
+  forme d'onde (audio, lue au **survol**), poster (vidéo), et un **sprite de
+  24 images** que la souris scrube au survol (clips ≤ 45 s : `fps`+`tile` ;
+  au-delà : 24 seeks `-ss` avant `-i` puis `hstack`, pour ne pas décoder tout
+  le fichier). Clic ouvre la visionneuse plein panneau (image / vidéo).
 - Les formats que Chromium ne lit pas (aif, wma, tiff, heic…) sont convertis à
-  la volée en aperçu ; le fichier d'origine reste celui qui est importé.
+  la volée pour l'aperçu ; le fichier d'origine reste celui qui est glissé.
+- Le manifest ajoute `--allow-file-access-from-files` : sans ça, Chromium
+  bloque le chargement des vignettes et médias `file://`.
+
+**Téléchargeur (overlay ⬇)** — colle un lien, téléchargé par le moteur Mudkit
+(`premiere_dl.py`), converti en H.264/AAC si Premiere ne lit pas le codec, puis
+importé dans le chutier « Mudkit » et posé sur la timeline (`panel.js`).
 
 Après **chaque** modification de `premiere_ext/src/`, relancer la signature :
 
