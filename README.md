@@ -60,6 +60,47 @@ Composer (arborescence à gauche, grille à droite), sans limite d'éléments :
 - Le manifest ajoute `--allow-file-access-from-files` : sans ça Chromium bloque
   les vignettes et médias `file://`.
 
+### Réutilisation des aperçus Mister Horse
+
+Rétro-ingénierie de leur convention (observée sur la bibliothèque réelle, pas
+sur leur code) : Mister Horse dépose ses aperçus dans un dossier
+`_Mister Horse Previews` placé **dans** le dossier ajouté à sa User Library, et
+qui reproduit toute l'arborescence en dessous. Nom = `<nom complet du fichier
+source>` + `.webp` / `.jpg` / `.png` :
+
+| source | aperçu | dimensions |
+|---|---|---|
+| mp3, wav | `.png` | 320×180 — forme d'onde |
+| jpg, png, gif, mogrt | `.webp` / `.jpg` | 320×180 — image fixe |
+| **mp4** | `.webp` | **320×(N×180)** — sprite **vertical** de N images |
+| mov, wmv | `.webp` | webp animé |
+
+Deux conséquences, toutes les deux implémentées :
+
+1. **Ces fichiers ne sont PAS des médias.** Sans le filtre, le scan avalait
+   **5 141 faux items**. `scan()` détecte les dossiers `_Mister Horse Previews`
+   et route leur contenu vers `lib.mh` au lieu de `lib.items`.
+2. **On les réutilise comme vignettes.** `mhPreview()` fait un lookup O(1), et
+   `useMH()` mesure l'image chargée pour décider image fixe vs sprite vertical
+   (scrub avec `attachVSprite()`, aucun ffmpeg nécessaire).
+
+Mesuré sur la bibliothèque réelle (43 425 items) : **1 537 / 1 538 vidéos
+(99,9 %)** et **810 / 844 images (96 %)** obtiennent un aperçu instantané —
+justement les plus coûteux à produire. Côté audio en revanche seulement
+22 / 41 043, donc les formes d'onde restent à notre charge : d'où `MAXJOBS = 4`.
+
+Le fichier `settings.dat` de Mister Horse est chiffré ; il n'est **pas** lu ni
+déchiffré, et rien de leur code n'est repris.
+
+### Performances mesurées (43 425 items, vraie bibliothèque)
+
+| Phase | Temps |
+|---|---|
+| Scan complet (2 299 dossiers) | 830 ms |
+| Index JSON en cache | 13,1 Mo — parse 32 ms |
+| `buildTree()` | 33 ms → **mis en cache**, sinon rejoué à chaque clic |
+| Recherche sur 43 k items | 14 ms |
+
 ⚠️ **Piège de concurrence** : `scan()` ne doit **pas** incrémenter le token
 global. Monter deux racines en parallèle ferait avorter le premier scan et
 `refreshAfterMount()` ne serait jamais appelé (panneau figé). Le token n'avance

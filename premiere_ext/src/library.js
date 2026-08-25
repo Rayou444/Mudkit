@@ -39,6 +39,19 @@ var HOVER_MS = 220;
 var SKIP_DIRS = { "node_modules":1, "$recycle.bin":1, ".git":1,
                   "system volume information":1, ".cache":1 };
 
+/* Mister Horse depose ses apercus dans un dossier "_Mister Horse Previews"
+   place dans le dossier ajoute a sa User Library, et qui reproduit toute
+   l'arborescence en dessous. Convention observee sur une vraie bibliotheque :
+     <nom complet du fichier source> + .webp | .jpg | .png
+     mp3/wav -> .png  320x180  (forme d'onde)
+     jpg/png/gif/mogrt -> .webp/.jpg  320x180 (image fixe)
+     mp4 -> .webp  320x1800  (sprite VERTICAL de 10 images)
+     mov/wmv -> .webp anime
+   On ne les compte donc PAS comme des medias (sinon des milliers de faux
+   items), et on les REUTILISE comme vignettes : autant de ffmpeg economise. */
+var MH_DIR_RE = /^_mister horse previews$/i;
+var MH_EXT_RE = /\.(webp|jpg|png)$/i;
+
 var EXT = {};
 "mp3 wav flac m4a aac ogg opus aif aiff wma mka".split(" ").forEach(function (e) { EXT[e] = "audio"; });
 "mp4 mov mkv avi webm mxf m4v wmv mpg mpeg mts m2ts flv ts r3d braw".split(" ").forEach(function (e) { EXT[e] = "video"; });
@@ -65,6 +78,7 @@ var view = [];
 var rendered = 0;
 var query = "";
 var favOnly = false;
+var kind = "all";
 var action = "insert";
 var tileW = 116;
 var token = 0;
@@ -110,7 +124,10 @@ function evalScript(script) {
 
 /* --------------------------- file d'attente ffmpeg --------------------- */
 
-var queue = [], busy = 0, MAXJOBS = 2;
+/* 4 jobs en parallele : la bibliotheque est massivement audio (41k fichiers)
+   et Mister Horse n'en avait genere quasi aucune forme d'onde, donc c'est
+   nous qui les produisons. La machine a 12 coeurs, 4 reste confortable. */
+var queue = [], busy = 0, MAXJOBS = 4;
 
 /* token = "epoque" globale. Elle n'avance QUE sur une invalidation volontaire
    (rescan, demontage) -- surtout pas a chaque scan, sinon monter deux dossiers
@@ -142,14 +159,14 @@ function cachePath(sub, key, ex) { var d = CACHE + "\\" + sub; mkdirp(d); return
 function keyOf(it) { return md5(it.p + "|" + it.mt + "|" + it.sz); }
 function indexFile(r) { mkdirp(CACHE); return CACHE + "\\idx-" + md5(r.toLowerCase()) + ".json"; }
 function loadIndex(r) {
-  try { var o = JSON.parse(fs.readFileSync(indexFile(r), "utf8")); if (o && o.v === 1 && o.items) return o; }
+  try { var o = JSON.parse(fs.readFileSync(indexFile(r), "utf8")); if (o && o.v === 2 && o.items) return o; }
   catch (e) {}
   return null;
 }
 function saveIndex(lib) {
   try {
     fs.writeFileSync(indexFile(lib.root),
-      JSON.stringify({ v:1, root:lib.root, ts:Date.now(), items:lib.items, meta:lib.meta }));
+      JSON.stringify({ v:2, root:lib.root, ts:Date.now(), items:lib.items, meta:lib.meta, mh:lib.mh }));
   } catch (e) {}
 }
 
@@ -158,7 +175,11 @@ function saveIndex(lib) {
 function scan(lib, after) {
   var mine = token;          // epoque capturee : PAS d'increment ici
   lib.items = [];
-  var dirs = [{ d:lib.root, rel:"", lvl:0 }], seenDirs = 0;
+  lib.mh = {};               // cle "rel/nom.ext" en minuscules -> chemin d'apercu
+  /* mh sur une entree de file = { base, sub } : on est DANS un dossier
+     d'apercus Mister Horse ; base = rel du dossier qui le contient, sub = le
+     chemin parcouru a l'interieur. Le media source est donc base/sub/<nom>. */
+  var dirs = [{ d:lib.root, rel:"", lvl:0, mh:null }], seenDirs = 0, nPrev = 0;
 
   function step() {
     if (mine !== token) return;
@@ -171,18 +192,37 @@ function scan(lib, after) {
         var en = ents[i], nm = en.name;
         if (nm.charAt(0) === ".") continue;
         var full = cur.d + "\\" + nm;
+
         if (en.isDirectory()) {
           if (cur.lvl >= MAX_DEPTH || SKIP_DIRS[nm.toLowerCase()]) continue;
-          dirs.push({ d:full, rel: cur.rel ? cur.rel + "/" + nm : nm, lvl:cur.lvl + 1 });
+          var childRel = cur.rel ? cur.rel + "/" + nm : nm;
+          if (cur.mh) {
+            dirs.push({ d:full, rel:childRel, lvl:cur.lvl + 1,
+                        mh:{ base:cur.mh.base, sub: cur.mh.sub ? cur.mh.sub + "/" + nm : nm } });
+          } else if (MH_DIR_RE.test(nm)) {
+            dirs.push({ d:full, rel:cur.rel, lvl:cur.lvl + 1, mh:{ base:cur.rel, sub:"" } });
+          } else {
+            dirs.push({ d:full, rel:childRel, lvl:cur.lvl + 1, mh:null });
+          }
           continue;
         }
+
+        if (cur.mh) {                       // fichier d'apercu, pas un media
+          if (!MH_EXT_RE.test(nm)) continue;
+          var srcName = nm.replace(MH_EXT_RE, "");
+          var k2 = [cur.mh.base, cur.mh.sub, srcName].filter(Boolean).join("/").toLowerCase();
+          lib.mh[k2] = full; nPrev++;
+          continue;
+        }
+
         var e = ext(nm), k = EXT[e];
         if (!k) continue;
         var st; try { st = fs.statSync(full); } catch (er) { continue; }
         lib.items.push({ p:full, n:nm, e:e, k:k, rel:cur.rel, sz:st.size, mt:st.mtimeMs | 0 });
       }
     }
-    say("Scan... " + lib.items.length + " fichiers, " + seenDirs + " dossiers");
+    say("Scan... " + lib.items.length + " fichiers, " + seenDirs + " dossiers" +
+        (nPrev ? " (" + nPrev + " apercus Mister Horse reutilisables)" : ""));
     if (dirs.length) return setTimeout(step, 0);
     lib.items.sort(function (a, b) { return a.rel === b.rel ? a.n.localeCompare(b.n) : a.rel.localeCompare(b.rel); });
     saveIndex(lib);
@@ -191,9 +231,17 @@ function scan(lib, after) {
   setTimeout(step, 0);
 }
 
+/* Apercu deja produit par Mister Horse pour cet item, ou null. */
+function mhPreview(it) {
+  var lib = libs[it.lib];
+  if (!lib || !lib.mh) return null;
+  return lib.mh[((it.rel ? it.rel + "/" : "") + it.n).toLowerCase()] || null;
+}
+
 /* ------------------------------- arborescence -------------------------- */
 
 function rebuildAll() {
+  invalidateTree();
   all = [];
   libs.forEach(function (lib, li) {
     lib.items.forEach(function (it) { it.lib = li; all.push(it); });
@@ -202,8 +250,12 @@ function rebuildAll() {
 
 function nodeKey(li, rel) { return rel ? li + ":" + rel : String(li); }
 
+var treeCache = null;
+function invalidateTree() { treeCache = null; }
+
 function buildTree() {
-  return libs.map(function (lib, li) {
+  if (treeCache) return treeCache;          // 33 ms sur 43k items : on garde
+  treeCache = libs.map(function (lib, li) {
     var rootNode = { name:base(lib.root), key:String(li), lib:li, rel:"", kids:{}, count:0, isRoot:true };
     lib.items.forEach(function (it) {
       rootNode.count++;
@@ -218,6 +270,7 @@ function buildTree() {
     });
     return rootNode;
   });
+  return treeCache;
 }
 
 function renderTree() {
@@ -274,6 +327,7 @@ function inSelection(it) {
 function computeView() {
   var terms = query.trim() ? query.toLowerCase().trim().split(/\s+/) : null;
   return all.filter(function (it) {
+    if (kind !== "all" && it.k !== kind) return false;
     if (favOnly && !favs[it.p]) return false;
     if (terms) {
       var hay = (it.rel + "/" + it.n).toLowerCase();
@@ -392,8 +446,12 @@ function tile(it) {
     el.addEventListener("mouseleave", function () { clearTimeout(hoverTimer); if (el._hoverPlay) stopAudio(); });
   }
   if (it.k === "video") {
-    el.addEventListener("mouseenter", function () { hoverSprite(el, it); });
+    el.addEventListener("mouseenter", function () {
+      if (el.dataset.vsprite) return attachVSprite(el);   // sprite Mister Horse
+      hoverSprite(el, it);                                // sinon on le fabrique
+    });
     el.addEventListener("mouseleave", function () {
+      if (el.dataset.vsprite) { th.style.backgroundPosition = "50% 0%"; return; }
       th.classList.remove("sprite"); th.style.backgroundSize = "cover"; th.style.backgroundPosition = "center";
       if (el.dataset.poster) th.style.backgroundImage = "url(" + el.dataset.poster + ")";
     });
@@ -427,8 +485,42 @@ function probeDur(it, cb) {
     });
 }
 
+/* Vignette : on tente d'abord de reutiliser l'apercu Mister Horse deja
+   present sur le disque, sinon on le fabrique nous-memes avec ffmpeg. */
 function thumb(el) {
   var it = el._it; if (!it || !CACHE || !nodeReq) return;
+  useMH(el, it, function (ok) {
+    if (!ok) return thumbGenerate(el);
+    if (it.k !== "image") probeDur(it, function (d) { setDur(el, d); });
+  });
+}
+
+/* Charge l'apercu Mister Horse et decide image fixe vs sprite VERTICAL.
+   Leurs sprites video font 320 x (N*180) : N images empilees. */
+function useMH(el, it, cb) {
+  var f = mhPreview(it);
+  if (!f) return cb(false);
+  var url = fileUrl(f), img = new Image();
+  img.onload = function () {
+    var w = img.naturalWidth, h = img.naturalHeight;
+    var frames = w > 0 ? Math.round(h / (w * 9 / 16)) : 1;
+    var expected = frames * w * 9 / 16;
+    if (frames >= 2 && Math.abs(h - expected) <= frames * 4) {
+      var th = el.querySelector(".th");
+      el.dataset.vsprite = url; el.dataset.vframes = String(frames);
+      th.style.backgroundImage = "url(" + url + ")";
+      th.style.backgroundSize = "100% " + (frames * 100) + "%";
+      th.style.backgroundPosition = "50% 0%";
+      var g = th.querySelector(".glyph"); if (g) g.style.display = "none";
+    } else setBg(el, url);
+    cb(true);
+  };
+  img.onerror = function () { cb(false); };
+  img.src = url;
+}
+
+function thumbGenerate(el) {
+  var it = el._it; if (!it) return;
   var key = keyOf(it);
 
   if (it.k === "image") {
@@ -458,6 +550,20 @@ function thumb(el) {
       "scale=320:180:force_original_aspect_ratio=increase,crop=320:180","-q:v","4","-y",po],
       function (err) { if (!err && fs.existsSync(po)) { el.dataset.poster = fileUrl(po); setBg(el, fileUrl(po)); } });
   });
+}
+
+/* Scrub d'un sprite VERTICAL (format Mister Horse) : la souris balaie en X,
+   on deplace le fond en Y. Aucun ffmpeg necessaire. */
+function attachVSprite(el) {
+  var th = el.querySelector(".th"), frames = +el.dataset.vframes || 1;
+  if (frames < 2 || th._scrubV) return;
+  th._scrubV = function (ev) {
+    var r = th.getBoundingClientRect();
+    var f = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+    var i = Math.min(frames - 1, Math.floor(f * frames));
+    th.style.backgroundPosition = "50% " + (i / (frames - 1) * 100) + "%";
+  };
+  th.addEventListener("mousemove", th._scrubV);
 }
 
 var CELL = "scale=160:90:force_original_aspect_ratio=increase,crop=160:90";
@@ -605,10 +711,10 @@ function doImport(it) {
 function saveRoots() { lsSet("mudkit.lib.roots", JSON.stringify(libs.map(function (l) { return l.root; }))); }
 
 function mountRoot(r, forceRescan, done) {
-  var lib = { root:r, items:[], meta:{} };
+  var lib = { root:r, items:[], meta:{}, mh:{} };
   libs.push(lib);
   var cached = forceRescan ? null : loadIndex(r);
-  if (cached) { lib.items = cached.items; lib.meta = cached.meta || {}; return done(lib, true); }
+  if (cached) { lib.items = cached.items; lib.meta = cached.meta || {}; lib.mh = cached.mh || {}; return done(lib, true); }
   scan(lib, function () { done(lib, false); });
 }
 
@@ -644,6 +750,13 @@ document.querySelectorAll("#libact button").forEach(function (b) {
 var qTimer = null;
 $("#q").addEventListener("input", function (e) {
   query = e.target.value; clearTimeout(qTimer); qTimer = setTimeout(redraw, 170);
+});
+
+document.querySelectorAll("#kinds button").forEach(function (b) {
+  b.addEventListener("click", function () {
+    document.querySelectorAll("#kinds button").forEach(function (x) { x.classList.remove("on"); });
+    b.classList.add("on"); kind = b.dataset.k; lsSet("mudkit.lib.kind", kind); redraw();
+  });
 });
 
 $("#favfilter").addEventListener("click", function () {
@@ -730,6 +843,7 @@ if (!nodeReq) {
   sel = ls("mudkit.lib.sel", "");
   action = ls("mudkit.lib.action", "insert");
   favOnly = ls("mudkit.lib.favonly", "0") === "1";
+  kind = ls("mudkit.lib.kind", "all");
   tileW = +ls("mudkit.lib.tilew", "116") || 116;
 
   document.documentElement.style.setProperty("--tw", tileW + "px");
@@ -738,6 +852,7 @@ if (!nodeReq) {
   audio.volume = (+$("#vol").value) / 100;
   $("#side").style.width = (+ls("mudkit.lib.sidew", "168") || 168) + "px";
   $("#favfilter").classList.toggle("on", favOnly);
+  document.querySelectorAll("#kinds button").forEach(function (b) { b.classList.toggle("on", b.dataset.k === kind); });
   document.querySelectorAll("#libact button").forEach(function (b) { b.classList.toggle("on", b.dataset.v === action); });
   mkdirp(CACHE);
 

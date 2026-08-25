@@ -79,6 +79,15 @@
   .search:focus { border-color:var(--accent); }
   .search::placeholder { color:var(--faint); }
 
+  .kinds { flex:0 0 auto; display:flex; gap:3px; padding:0 7px 7px; }
+  .kinds button {
+    flex:1; font:inherit; font-size:10.5px; color:var(--dim);
+    background:var(--input); border:1px solid var(--line); border-radius:3px;
+    padding:3px 2px; cursor:pointer;
+  }
+  .kinds button:hover { color:var(--text); }
+  .kinds button.on { color:#FFF; background:var(--accent); border-color:var(--accent); }
+
   .tree { flex:1 1 auto; min-height:0; overflow:auto; padding-bottom:6px; }
 
   .node {
@@ -276,6 +285,12 @@
     <div class="sidetop">
       <button id="favfilter" class="starbtn" title="Afficher seulement les favoris">★</button>
       <input id="q" class="search" type="text" spellcheck="false" placeholder="Rechercher">
+    </div>
+    <div class="kinds" id="kinds">
+      <button data-k="all" class="on" title="Tous les types">Tout</button>
+      <button data-k="audio" title="Sons">♪</button>
+      <button data-k="video" title="Videos">▶</button>
+      <button data-k="image" title="Images">▣</button>
     </div>
     <div class="tree" id="tree"></div>
   </div>
