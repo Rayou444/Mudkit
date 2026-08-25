@@ -89,7 +89,6 @@ var view = [];
 var rendered = 0;
 var query = "";
 var favOnly = false;
-var kind = "all";
 var action = "insert";
 var tileW = 116;
 var token = 0;
@@ -349,7 +348,6 @@ function inSelection(it) {
 function computeView() {
   var terms = query.trim() ? query.toLowerCase().trim().split(/\s+/) : null;
   return all.filter(function (it) {
-    if (kind !== "all" && it.k !== kind) return false;
     if (favOnly && !favs[it.p]) return false;
     if (terms) {
       var hay = (it.rel + "/" + it.n).toLowerCase();
@@ -420,7 +418,8 @@ function onVisible(entries) {
 function tile(it) {
   var el = document.createElement("div");
   el.className = "tile";
-  el.title = it.p + "\n" + human(it.sz);
+  el.title = it.p + "\n" + human(it.sz) +
+    (it.k === "audio" ? "\n\nClic sur le visuel : lecture a partir de cet endroit" : "");
   el._it = it;
   el.setAttribute("draggable", "true");
 
@@ -458,7 +457,16 @@ function tile(it) {
     if (favOnly) redraw();
   });
   add.addEventListener("click", function (ev) { ev.stopPropagation(); doImport(it); });
-  el.addEventListener("click", function () { selectTile(el); preview(el, it); });
+  el.addEventListener("click", function (ev) {
+    selectTile(el);
+    // Clic DANS le visuel : on en tire la position de lecture (0 a 1).
+    var frac = null;
+    if (th.contains(ev.target)) {
+      var r = th.getBoundingClientRect();
+      if (r.width) frac = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+    }
+    preview(el, it, frac);
+  });
   el.addEventListener("dblclick", function () { doImport(it); });
 
   if (it.k === "video") {
@@ -697,16 +705,38 @@ audio.addEventListener("timeupdate", function () {
 });
 audio.addEventListener("ended", stopAudio);
 
-function playAudio(el, it) {
-  if (playingTile === el) return stopAudio();   // reclic = stop
-  stopAudio();
+/* frac : position du clic sur la forme d'onde, entre 0 et 1. On demarre la
+   lecture a cet endroit du son -- cliquer au milieu du visuel joue le milieu.
+   frac null = clic ailleurs sur la tuile : simple bascule lecture / stop. */
+function playAudio(el, it, frac) {
+  if (playingTile === el && frac == null) return stopAudio();
+  if (playingTile !== el) stopAudio();
+
   playingTile = el;
   el.classList.add("playing");
-  var b = document.createElement("div"); b.className = "pos"; el.querySelector(".th").appendChild(b);
+  if (!el.querySelector(".pos")) {
+    var b = document.createElement("div"); b.className = "pos";
+    el.querySelector(".th").appendChild(b);
+  }
   audio.volume = (+$("#vol").value) / 100;
-  function start(src) { audio.src = src; audio.play().catch(function () {}); }
+
+  function seek() {
+    if (frac == null || !isFinite(audio.duration)) return;
+    try { audio.currentTime = frac * audio.duration; } catch (e) {}
+  }
+  function start(src) {
+    // currentTime n'est reglable qu'une fois la duree connue
+    if (audio.src !== src) audio.src = src;
+    if (audio.readyState >= 1) seek();
+    else audio.addEventListener("loadedmetadata", function once() {
+      audio.removeEventListener("loadedmetadata", once); seek();
+    });
+    audio.play().catch(function () {});
+  }
+
   if (WEB_AUDIO[it.e]) { audio.onerror = function () { transcode(); }; start(fileUrl(it.p)); }
   else transcode();
+
   function transcode() {
     audio.onerror = null;
     var pv = cachePath("pv", keyOf(it), ".mp3");
@@ -757,8 +787,8 @@ function selectTile(el) {
   selTile = el; el.classList.add("sel");
 }
 
-function preview(el, it) {
-  if (it.k === "audio") return playAudio(el, it);
+function preview(el, it, frac) {
+  if (it.k === "audio") return playAudio(el, it, frac);
   stopAudio(); openViewer(it);
 }
 
@@ -823,13 +853,6 @@ document.querySelectorAll("#libact button").forEach(function (b) {
 var qTimer = null;
 $("#q").addEventListener("input", function (e) {
   query = e.target.value; clearTimeout(qTimer); qTimer = setTimeout(redraw, 170);
-});
-
-document.querySelectorAll("#kinds button").forEach(function (b) {
-  b.addEventListener("click", function () {
-    document.querySelectorAll("#kinds button").forEach(function (x) { x.classList.remove("on"); });
-    b.classList.add("on"); kind = b.dataset.k; lsSet("mudkit.lib.kind", kind); redraw();
-  });
 });
 
 $("#favfilter").addEventListener("click", function () {
@@ -916,7 +939,6 @@ if (!nodeReq) {
   sel = ls("mudkit.lib.sel", "");
   action = ls("mudkit.lib.action", "insert");
   favOnly = ls("mudkit.lib.favonly", "0") === "1";
-  kind = ls("mudkit.lib.kind", "all");
   tileW = +ls("mudkit.lib.tilew", "116") || 116;
 
   document.documentElement.style.setProperty("--tw", tileW + "px");
@@ -925,7 +947,6 @@ if (!nodeReq) {
   audio.volume = (+$("#vol").value) / 100;
   $("#side").style.width = (+ls("mudkit.lib.sidew", "168") || 168) + "px";
   $("#favfilter").classList.toggle("on", favOnly);
-  document.querySelectorAll("#kinds button").forEach(function (b) { b.classList.toggle("on", b.dataset.k === kind); });
   document.querySelectorAll("#libact button").forEach(function (b) { b.classList.toggle("on", b.dataset.v === action); });
   mkdirp(CACHE);
 

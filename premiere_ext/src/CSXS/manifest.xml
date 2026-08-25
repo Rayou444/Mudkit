@@ -37,12 +37,12 @@
           <Menu>Mudkit</Menu>
           <Geometry>
             <Size>
-              <Height>600</Height>
-              <Width>380</Width>
+              <Height>780</Height>
+              <Width>760</Width>
             </Size>
             <MinSize>
-              <Height>320</Height>
-              <Width>280</Width>
+              <Height>340</Height>
+              <Width>300</Width>
             </MinSize>
           </Geometry>
         </UI>

@@ -44,11 +44,18 @@ Composer (arborescence à gauche, grille à droite), sans limite d'éléments :
   direct en secours ([régression Adobe connue](https://github.com/Adobe-CEP/CEP-Resources/issues/483)).
 - **Favoris ★** sur chaque vignette (persistés) + bouton ★ en haut de la
   barre latérale pour ne montrer que les favoris.
-- **Tout se déclenche au clic, jamais au survol.** Clic sur un son = lecture,
-  re-clic = stop ; clic sur une image/vidéo = visionneuse. La tuile
-  sélectionnée garde un cadre bleu. Seule exception au survol : le **scrub**
-  des vignettes vidéo, qui ne lance aucune lecture (c'est le geste signature
-  d'Animation Composer).
+- **Tout se déclenche au clic, jamais au survol.** Clic sur une image/vidéo =
+  visionneuse. La tuile sélectionnée garde un cadre bleu. Seule exception au
+  survol : le **scrub** des vignettes vidéo, qui ne lance aucune lecture (c'est
+  le geste signature d'Animation Composer).
+- **Pour un son, on clique sur la forme d'onde et la lecture démarre à cet
+  endroit** : la position horizontale du clic donne une fraction de 0 à 1,
+  appliquée à la durée. Cliquer ailleurs sur la tuile (la ligne du nom)
+  bascule simplement lecture / stop. `currentTime` n'étant réglable qu'une fois
+  la durée connue, le calage se fait sur `loadedmetadata` quand les métadonnées
+  ne sont pas encore chargées. `.dur` et `.pos` sont en `pointer-events:none`
+  pour que le clic traverse jusqu'au visuel.
+- **Pas de filtre par type** : retiré à la demande, l'arbre suffit à cadrer.
 - **MOGRT** : posés sur la timeline via `sequence.importMGT(path, time,
   vidTrackOffset, audTrackOffset)`. Il n'existe pas d'équivalent « déposer dans
   un chutier » pour un MOGRT, donc l'action *chutier* renvoie une erreur claire
@@ -146,6 +153,14 @@ powershell -ExecutionPolicy Bypass -File C:\Users\Rayan\Mudkit\premiere_ext\depl
 
 puis rouvrir le panneau dans Premiere (la signature couvre les fichiers, une
 modif non re-signée fait refuser l'extension).
+
+⚠️ **Taille par défaut du panneau** : elle est déclarée dans
+`CSXS/manifest.xml` (`<Size>` 760×780, `<MinSize>` 300×340). Mais Premiere
+**mémorise la taille dans l'espace de travail** : le manifest ne s'applique
+qu'à un panneau qui n'a pas encore d'entrée enregistrée. Si le panneau
+continue de s'ouvrir petit, redimensionner une fois puis
+**Fenêtre → Espaces de travail → Enregistrer les modifications de cet espace
+de travail**.
 
 ## Architecture
 
