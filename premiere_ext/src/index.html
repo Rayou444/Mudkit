@@ -9,7 +9,13 @@
      demarrage par la vraie couleur/police du theme Premiere. Ne pas ajouter
      de variable ici sans l'ajouter aussi dans setTheme() de panel.js. */
   :root {
-    --font:    "Adobe Clean", "Segoe UI", system-ui, sans-serif;
+    /* Replis indispensables : des noms de fichiers venus de YouTube/TikTok
+       contiennent des emoji, du CJK ou de la ponctuation pleine chasse
+       (U+FF1A deux-points, U+FF5C barre) qu'Adobe Clean et Segoe UI ne
+       couvrent pas -> sinon carre vide sous la vignette. */
+    --font:    "Adobe Clean", "Segoe UI", "Segoe UI Symbol", "Segoe UI Emoji",
+               "Yu Gothic UI", "Malgun Gothic", "Microsoft YaHei UI",
+               system-ui, sans-serif;
     --fs:      11px;
     --bg:      #1E1E1E;   /* fond du panneau           */
     --side:    #242424;   /* colonne de gauche         */

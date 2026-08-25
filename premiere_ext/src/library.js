@@ -135,10 +135,10 @@ function evalScript(script) {
 
 /* --------------------------- file d'attente ffmpeg --------------------- */
 
-/* 4 jobs en parallele : la bibliotheque est massivement audio (41k fichiers)
-   et Mister Horse n'en avait genere quasi aucune forme d'onde, donc c'est
-   nous qui les produisons. La machine a 12 coeurs, 4 reste confortable. */
-var queue = [], busy = 0, MAXJOBS = 4;
+/* 8 jobs en parallele : la bibliotheque est massivement audio (41k fichiers)
+   et Mister Horse n'avait genere que 22 formes d'onde, donc c'est nous qui
+   produisons les 41 000 autres. La machine a 12 coeurs. */
+var queue = [], busy = 0, MAXJOBS = 8;
 
 /* token = "epoque" globale. Elle n'avance QUE sur une invalidation volontaire
    (rescan, demontage) -- surtout pas a chaque scan, sinon monter deux dossiers
@@ -146,11 +146,22 @@ var queue = [], busy = 0, MAXJOBS = 4;
    jamais appele). Chaque scan compare l'epoque capturee au demarrage. */
 function invalidate() { token++; queue.length = 0; }
 
-function run(exe, args, done) { queue.push({ exe:exe, args:args, done:done, tok:token }); pump(); }
+/* opts.el   : tuile concernee -- si elle a quitte le DOM (defilement, filtre,
+                changement de dossier), le job est abandonne au lieu de bloquer
+                la file derriere des vignettes que plus personne ne regarde.
+   opts.first : passe devant. Les vignettes demandees en dernier sont celles
+                qui viennent d'entrer a l'ecran, ce sont donc les urgentes. */
+function run(exe, args, done, opts) {
+  opts = opts || {};
+  var job = { exe:exe, args:args, done:done, tok:token, el:opts.el };
+  if (opts.first) queue.unshift(job); else queue.push(job);
+  pump();
+}
 function pump() {
   while (busy < MAXJOBS && queue.length) {
     var job = queue.shift();
     if (job.tok !== token) continue;
+    if (job.el && !job.el.isConnected) continue;   // tuile plus a l'ecran
     busy++;
     (function (j) {
       var out = "", err = "", p;
@@ -479,15 +490,54 @@ function metaOf(it) {
   return lib.meta[it.p];
 }
 
-function probeDur(it, cb) {
+/* Une seule sonde ffprobe donne la duree ET la presence d'une piste video.
+   Indispensable : la bibliotheque contient des .mp4/.mov qui ne sont QUE de
+   l'audio (musique dans un conteneur video, typiquement dans 03_MUSIQUE).
+   Tenter d'en extraire une image echoue avec "Output file does not contain
+   any stream" et laisse une vignette vide -- le fameux carre. */
+function probeInfo(it, cb) {
   var m = metaOf(it);
-  if (m.dur != null) return cb(m.dur);
-  run(FFPROBE, ["-v","error","-show_entries","format=duration","-of","default=nw=1:nk=1", it.p],
+  if (m.vid !== undefined) return cb(m);
+  run(FFPROBE, ["-v","error","-show_entries","format=duration:stream=codec_type",
+                "-of","default=nw=1:nk=1", it.p], 
     function (err, out) {
-      var d = err ? null : parseFloat(String(out).trim());
-      if (!isFinite(d)) d = null;
-      m.dur = d; cb(d);
+      var toks = String(out || "").trim().split(/\s+/);
+      var d = null, hasVid = false;
+      for (var i = 0; i < toks.length; i++) {
+        if (toks[i] === "video") { hasVid = true; continue; }
+        var f = parseFloat(toks[i]);
+        if (isFinite(f)) d = f;
+      }
+      m.dur = d; m.vid = hasVid;
+      cb(m);
     });
+}
+
+/* Un fichier classe "video" mais sans image est en realite un son : on le
+   requalifie, on l'affiche comme tel, et on memorise la correction. */
+function demoteToAudio(it, el) {
+  if (it.k === "audio") return;
+  it.k = "audio";
+  if (el) {
+    var bd = el.querySelector(".badge");
+    if (bd) { bd.className = "badge audio"; bd.innerHTML = ICO.audio; }
+    var gl = el.querySelector(".glyph");
+    if (gl) gl.innerHTML = ICO.audio;
+  }
+  saveIndexSoon(libs[it.lib]);
+}
+
+/* Sauvegarde differee : l'index fait ~13 Mo, on ne le reecrit pas a chaque
+   requalification. */
+var saveTimer = null, savePending = [];
+function saveIndexSoon(lib) {
+  if (!lib) return;
+  if (savePending.indexOf(lib) < 0) savePending.push(lib);
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(function () {
+    savePending.forEach(function (l) { saveIndex(l); });
+    savePending = [];
+  }, 4000);
 }
 
 /* Vignette : on tente d'abord de reutiliser l'apercu Mister Horse deja
@@ -496,7 +546,10 @@ function thumb(el) {
   var it = el._it; if (!it || !CACHE || !nodeReq) return;
   useMH(el, it, function (ok) {
     if (!ok) return thumbGenerate(el);
-    if (it.k !== "image") probeDur(it, function (d) { setDur(el, d); });
+    if (it.k !== "image") probeInfo(it, function (m) {
+      setDur(el, m.dur);
+      if (it.k === "video" && !m.vid) demoteToAudio(it, el);
+    });
   });
 }
 
@@ -535,27 +588,34 @@ function thumbGenerate(el) {
     if (fs.existsSync(out)) return setBg(el, fileUrl(out));
     run(FFMPEG, ["-v","error","-i",it.p,"-frames:v","1","-vf",
       "scale=320:180:force_original_aspect_ratio=increase,crop=320:180","-q:v","4","-y",out],
-      function (err) { if (!err && fs.existsSync(out)) setBg(el, fileUrl(out)); });
+      function (err) { if (!err && fs.existsSync(out)) setBg(el, fileUrl(out)); },
+      { el:el, first:true });
     return;
   }
-  if (it.k === "audio") {
-    var wf = cachePath("wf", key, ".png");
-    probeDur(it, function (d) { setDur(el, d); });
-    if (fs.existsSync(wf)) return setBg(el, fileUrl(wf));
-    run(FFMPEG, ["-v","error","-i",it.p,"-filter_complex",
-      "aformat=channel_layouts=mono,showwavespic=s=320x180:colors=#5B9BE8","-frames:v","1","-y",wf],
-      function (err) { if (!err && fs.existsSync(wf)) setBg(el, fileUrl(wf)); });
-    return;
-  }
-  var po = cachePath("th", key, ".jpg");
-  probeDur(it, function (d) {
-    setDur(el, d);
+  if (it.k === "audio") return waveform(el, it, key);
+
+  // Classe "video" : on verifie qu'il y a bien une image avant d'en extraire une.
+  probeInfo(it, function (m) {
+    setDur(el, m.dur);
+    if (!m.vid) { demoteToAudio(it, el); return waveform(el, it, key); }
+    var po = cachePath("th", key, ".jpg");
     if (fs.existsSync(po)) { el.dataset.poster = fileUrl(po); return setBg(el, fileUrl(po)); }
-    var at = (d && d > 3) ? Math.min(d * 0.15, 20) : 0;
+    var at = (m.dur && m.dur > 3) ? Math.min(m.dur * 0.15, 20) : 0;
     run(FFMPEG, ["-v","error","-ss",String(at.toFixed(2)),"-i",it.p,"-frames:v","1","-vf",
       "scale=320:180:force_original_aspect_ratio=increase,crop=320:180","-q:v","4","-y",po],
-      function (err) { if (!err && fs.existsSync(po)) { el.dataset.poster = fileUrl(po); setBg(el, fileUrl(po)); } });
+      function (err) { if (!err && fs.existsSync(po)) { el.dataset.poster = fileUrl(po); setBg(el, fileUrl(po)); } },
+      { el:el, first:true });
   });
+}
+
+function waveform(el, it, key) {
+  var wf = cachePath("wf", key, ".png");
+  probeInfo(it, function (m) { setDur(el, m.dur); });
+  if (fs.existsSync(wf)) return setBg(el, fileUrl(wf));
+  run(FFMPEG, ["-v","error","-i",it.p,"-filter_complex",
+    "aformat=channel_layouts=mono,showwavespic=s=320x180:colors=#5B9BE8","-frames:v","1","-y",wf],
+    function (err) { if (!err && fs.existsSync(wf)) setBg(el, fileUrl(wf)); },
+    { el:el, first:true });
 }
 
 /* Scrub d'un sprite VERTICAL (format Mister Horse) : la souris balaie en X,
@@ -610,9 +670,10 @@ function hoverSprite(el, it) {
   if (fs.existsSync(sp)) return attach();
   if (el.dataset.spriteBusy) return;
   el.dataset.spriteBusy = "1";
-  probeDur(it, function (d) {
-    if (!d || d < 0.5) { el.dataset.spriteBusy = ""; return; }
-    run(FFMPEG, spriteArgs(it.p, d, sp), function (err) {
+  probeInfo(it, function (m) {
+    // fichier sans image (musique en conteneur .mp4) : pas de sprite possible
+    if (!m.vid || !m.dur || m.dur < 0.5) { el.dataset.spriteBusy = ""; return; }
+    run(FFMPEG, spriteArgs(it.p, m.dur, sp), function (err) {
       el.dataset.spriteBusy = "";
       if (!err && fs.existsSync(sp) && el.matches(":hover")) attach();
     });

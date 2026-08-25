@@ -61,7 +61,9 @@ function applyTheme() {
     var root = document.documentElement.style;
     if (sk.baseFontFamily)
       root.setProperty("--font", '"' + sk.baseFontFamily +
-                       '", "Adobe Clean", "Segoe UI", system-ui, sans-serif');
+                       '", "Adobe Clean", "Segoe UI", "Segoe UI Symbol",' +
+                       ' "Segoe UI Emoji", "Yu Gothic UI", "Malgun Gothic",' +
+                       ' "Microsoft YaHei UI", system-ui, sans-serif');
     var fsz = parseFloat(sk.baseFontSize);
     if (isFinite(fsz) && fsz > 0)
       root.setProperty("--fs", Math.max(10, Math.min(13, fsz)) + "px");
@@ -136,7 +138,7 @@ $("#upd").addEventListener("click", function (e) {
     "from pip._internal.cli.main import main; sys.exit(main())";
   var p = spawn(PY, ["-c", code], { windowsHide: true });
   p.on("exit", function (c) {
-    status(c === 0 ? "yt-dlp à jour ✓" : "Échec de la mise à jour de yt-dlp",
+    status(c === 0 ? "yt-dlp à jour OK" : "Échec de la mise à jour de yt-dlp",
            c === 0 ? "ok" : "err");
   });
 });
@@ -230,11 +232,11 @@ function onMessage(msg) {
                action + "\")").then(function (res) {
       running(false);
       if (res === "inserted")
-        status("✓ " + msg.title + " — importé et posé sur la timeline", "ok");
+        status("OK " + msg.title + " — importé et posé sur la timeline", "ok");
       else if (res === "imported")
-        status("✓ " + msg.title + " — dans le chutier Mudkit", "ok");
+        status("OK " + msg.title + " — dans le chutier Mudkit", "ok");
       else if (res === "imported_no_seq")
-        status("✓ Importé dans le chutier Mudkit (aucune séquence active " +
+        status("OK Importé dans le chutier Mudkit (aucune séquence active " +
                "pour l'insertion)", "ok");
       else if (res && res.indexOf("imported_insert_failed") === 0)
         status("Importé, mais insertion timeline impossible : " +
