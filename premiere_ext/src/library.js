@@ -61,11 +61,22 @@ var WEB_AUDIO = { mp3:1, wav:1, flac:1, m4a:1, aac:1, ogg:1, opus:1, mka:1 };
 var WEB_IMAGE = { jpg:1, jpeg:1, png:1, gif:1, webp:1, bmp:1, svg:1, avif:1 };
 var WEB_VIDEO = { mp4:1, m4v:1, mov:1, webm:1 };
 
-var GLYPH  = { audio:"\u266A", video:"\u25B6", image:"\u25A3", mogrt:"\u25C6" };
-var BADGE  = { audio:"\u25CF", video:"\u25B6", image:"\u25A0", mogrt:"\u25C6" };
-var CHEV   = "\u25B8";        // chevron de l'arbre (tourne en CSS)
-var FOLDER = "\u25A2";        // petit carre = dossier
-var CHECK  = "\u2713";
+/* Icones en SVG inline plutot qu'en caracteres Unicode : selon la police
+   installee, des glyphes comme U+25A2 ou U+FF0B ne sont pas couverts et
+   Chromium affiche un carre vide ("tofu"). En SVG c'est garanti, ca suit
+   currentColor donc le theme, et ca reste net a toutes les tailles. */
+var S = '<svg class="ic" viewBox="0 0 16 16">';
+var ICO = {
+  audio:  S + '<path d="M6.4 11V4.2l5.2-1.1v6.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="4.9" cy="11.2" r="1.7" fill="currentColor"/><circle cx="10.1" cy="9.9" r="1.7" fill="currentColor"/></svg>',
+  video:  S + '<path d="M5.2 3.4l7.2 4.6-7.2 4.6z" fill="currentColor"/></svg>',
+  image:  S + '<rect x="2" y="3.2" width="12" height="9.6" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="5.5" cy="6.4" r="1.1" fill="currentColor"/><path d="M2.6 11.6l3.3-3.1 2.4 2.1 2.3-2.1 2.8 3.1" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>',
+  mogrt:  S + '<path d="M8 2.3l5.7 5.7L8 13.7 2.3 8z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 5.5L10.5 8 8 10.5 5.5 8z" fill="currentColor"/></svg>',
+  chev:   S + '<path d="M6.2 4.4L9.8 8l-3.6 3.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  folder: S + '<path d="M1.9 4h4l1.1 1.5h7.1v6.6H1.9z" fill="currentColor"/></svg>',
+  star:   S + '<path d="M8 2.2l1.75 3.54 3.91.57-2.83 2.76.67 3.89L8 11.13l-3.5 1.83.67-3.89L2.34 6.31l3.91-.57z" fill="currentColor"/></svg>',
+  plus:   S + '<path d="M8 3.4v9.2M3.4 8h9.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
+};
+var CHECK  = "OK";
 
 /* --------------------------------- etat -------------------------------- */
 
@@ -289,10 +300,10 @@ function renderNode(host, n, depth) {
 
   var tw = document.createElement("span");
   tw.className = "tw" + (kids.length ? (open[n.key] ? " open" : "") : " leaf");
-  tw.textContent = CHEV;
+  tw.innerHTML = ICO.chev;
   row.appendChild(tw);
 
-  var ic = document.createElement("span"); ic.className = "ic"; ic.textContent = FOLDER; row.appendChild(ic);
+  var ic = document.createElement("span"); ic.className = "fic"; ic.innerHTML = ICO.folder; row.appendChild(ic);
   var nm = document.createElement("span"); nm.className = "nm"; nm.textContent = n.name; row.appendChild(nm);
   var ct = document.createElement("span"); ct.className = "ct"; ct.textContent = n.count; row.appendChild(ct);
 
@@ -403,14 +414,14 @@ function tile(it) {
   el.setAttribute("draggable", "true");
 
   var th = document.createElement("div"); th.className = "th";
-  var gl = document.createElement("div"); gl.className = "glyph"; gl.textContent = GLYPH[it.k]; th.appendChild(gl);
-  var add = document.createElement("div"); add.className = "add"; add.textContent = "+"; add.title = "Importer"; th.appendChild(add);
+  var gl = document.createElement("div"); gl.className = "glyph"; gl.innerHTML = ICO[it.k] || ""; th.appendChild(gl);
+  var add = document.createElement("div"); add.className = "add"; add.innerHTML = ICO.plus; add.title = "Importer"; th.appendChild(add);
   var dur = document.createElement("div"); dur.className = "dur"; th.appendChild(dur);
 
   var meta = document.createElement("div"); meta.className = "meta";
-  var bd = document.createElement("span"); bd.className = "badge " + it.k; bd.textContent = BADGE[it.k];
+  var bd = document.createElement("span"); bd.className = "badge " + it.k; bd.innerHTML = ICO[it.k] || "";
   var nm = document.createElement("span"); nm.className = "nm"; nm.textContent = it.n.replace(/\.[^.]+$/, "");
-  var fv = document.createElement("span"); fv.className = "fav" + (favs[it.p] ? " on" : ""); fv.textContent = "\u2605";
+  var fv = document.createElement("span"); fv.className = "fav" + (favs[it.p] ? " on" : ""); fv.innerHTML = ICO.star;
   fv.title = "Favori";
   meta.appendChild(bd); meta.appendChild(nm); meta.appendChild(fv);
 

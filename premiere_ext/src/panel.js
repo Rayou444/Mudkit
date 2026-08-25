@@ -27,27 +27,44 @@ function parseTime(txt) {
 
 /* ------- theme : suit la couleur du theme Apparence de Premiere ------- */
 
+/* Derive TOUTE la palette de la couleur de fond que Premiere nous donne.
+   Chaque variable definie dans index.html doit etre pilotee ici, sinon la
+   moitie du panneau reste figee sur les valeurs de secours et ne suit plus
+   la luminosite reglee dans Premiere. */
 function setTheme(r, g, b) {
   function shade(d) {
     function f(x) { return Math.max(0, Math.min(255, Math.round(x + d))); }
     return "rgb(" + f(r) + "," + f(g) + "," + f(b) + ")";
   }
+  var light = (r + g + b) / 3 > 128;   // theme clair de Premiere
+  var s = light ? -1 : 1;              // sens pour "se detacher du fond"
   var root = document.documentElement.style;
-  root.setProperty("--bg", shade(0));
-  root.setProperty("--panel", shade(12));
-  root.setProperty("--panel-h", shade(24));
-  root.setProperty("--line", shade(30));
-  root.setProperty("--input", shade(-10));
-  var light = (r + g + b) / 3 > 128;  // theme clair de Premiere
-  root.setProperty("--text", light ? "#1B1B1B" : "#D6D6D6");
-  root.setProperty("--dim", light ? "#5A5A5A" : "#999999");
+  root.setProperty("--bg",    shade(0));
+  root.setProperty("--side",  shade(s * 6));
+  root.setProperty("--panel", shade(s * 10));
+  root.setProperty("--row-h", shade(s * 20));
+  root.setProperty("--row-s", shade(s * 32));
+  root.setProperty("--line",  shade(s * 24));
+  root.setProperty("--input", light ? shade(14) : shade(-9));
+  root.setProperty("--text",  light ? "#1B1B1B" : "#D2D2D2");
+  root.setProperty("--dim",   light ? "#5A5A5A" : "#969696");
+  root.setProperty("--faint", light ? "#8A8A8A" : "#6C6C6C");
 }
 
 function applyTheme() {
   try {
     var env = JSON.parse(window.__adobe_cep__.getHostEnvironment());
-    var c = env.appSkinInfo.panelBackgroundColor.color;
+    var sk = env.appSkinInfo;
+    var c = sk.panelBackgroundColor.color;
     setTheme(c.red, c.green, c.blue);
+    // meme police et meme taille de base que l'hote
+    var root = document.documentElement.style;
+    if (sk.baseFontFamily)
+      root.setProperty("--font", '"' + sk.baseFontFamily +
+                       '", "Adobe Clean", "Segoe UI", system-ui, sans-serif');
+    var fsz = parseFloat(sk.baseFontSize);
+    if (isFinite(fsz) && fsz > 0)
+      root.setProperty("--fs", Math.max(10, Math.min(13, fsz)) + "px");
   } catch (e) { /* garde le theme sombre par defaut */ }
 }
 

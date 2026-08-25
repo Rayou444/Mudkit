@@ -69,6 +69,25 @@ Composer (arborescence à gauche, grille à droite), sans limite d'éléments :
 - Le manifest ajoute `--allow-file-access-from-files` : sans ça Chromium bloque
   les vignettes et médias `file://`.
 
+### Habillage : suivre Premiere, pas de glyphes Unicode
+
+Deux règles à ne pas casser :
+
+1. **Toutes les icônes sont des SVG inline en `currentColor`** (table `ICO` dans
+   `library.js`, markup direct dans `index.html`). Des caractères comme `▢`
+   (U+25A2), `＋` (U+FF0B), `⟳` (U+27F3) ou `⬇` (U+2B07) ne sont pas couverts par
+   Segoe UI : Chromium affiche alors un **carré vide** (« tofu »). En SVG c'est
+   garanti, ça suit le thème et ça reste net à toute taille.
+2. **Toute variable CSS déclarée dans `index.html` doit être pilotée par
+   `setTheme()` dans `panel.js`.** Les valeurs du `:root` ne sont que des
+   secours. La refonte avait introduit `--side`, `--row-h`, `--row-s`, `--faint`
+   sans les câbler : la moitié du panneau restait figée et ne suivait plus la
+   luminosité réglée dans Premiere. `setTheme()` dérive désormais toute la
+   palette de `appSkinInfo.panelBackgroundColor`, et inverse le sens des nuances
+   en thème clair. `applyTheme()` reprend aussi `baseFontFamily` et
+   `baseFontSize` de l'hôte (`--font`, `--fs`), donc le panneau utilise la même
+   police qu'Adobe.
+
 ### Réutilisation des aperçus Mister Horse
 
 Rétro-ingénierie de leur convention (observée sur la bibliothèque réelle, pas
