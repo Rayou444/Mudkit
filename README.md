@@ -24,6 +24,42 @@ Le téléchargeur permet aussi de ne prendre qu'un **passage** d'une vidéo
 Les binaires (ffmpeg, Real-ESRGAN) sont embarqués dans `bin/` : s'il en
 manque un, l'accueil propose de l'installer en un clic.
 
+## Panneau Premiere Pro
+
+Extension CEP `com.mudkit.premiere` (source dans `premiere_ext/src/`), ouverte
+depuis **Fenêtre → Extensions → Mudkit**. Deux onglets :
+
+**Télécharger** — colle un lien, le fichier est téléchargé par le moteur Mudkit
+(`premiere_dl.py`), converti en H.264/AAC si Premiere ne sait pas lire le codec,
+puis importé dans le chutier « Mudkit » et posé sur la timeline au curseur.
+
+**Bibliothèque** — navigateur de médias locaux, sans limite d'éléments :
+
+- `+` choisit un dossier, scanné récursivement (10 niveaux) ; plusieurs dossiers
+  peuvent être mémorisés, on bascule avec la liste déroulante.
+- Le résultat du scan est mis en cache dans
+  `%LOCALAPPDATA%\Mudkit\lib-cache\idx-*.json` : réouverture instantanée,
+  `⟳` pour rescanner.
+- Aperçus générés à la demande par le ffmpeg de `bin/` et mis en cache :
+  forme d'onde pour l'audio, image de poster pour la vidéo, et un **sprite de
+  24 images** que la souris scrube au survol de la vignette (clips ≤ 45 s :
+  `fps`+`tile` ; au-delà : 24 seeks `-ss` avant `-i` puis `hstack`, pour ne pas
+  décoder le fichier entier).
+- Clic = écoute / visionne · `+` ou double-clic = importe dans Premiere selon
+  l'action choisie en bas (insérer / écraser / chutier). Le chutier prend le nom
+  du dossier de la bibliothèque.
+- Les formats que Chromium ne lit pas (aif, wma, tiff, heic…) sont convertis à
+  la volée en aperçu ; le fichier d'origine reste celui qui est importé.
+
+Après **chaque** modification de `premiere_ext/src/`, relancer la signature :
+
+```
+powershell -ExecutionPolicy Bypass -File C:\Users\Rayan\Mudkit\premiere_ext\deployer.ps1
+```
+
+puis rouvrir le panneau dans Premiere (la signature couvre les fichiers, une
+modif non re-signée fait refuser l'extension).
+
 ## Architecture
 
 - `main.py` — ouvre la fenêtre native (pywebview) sur l'interface web locale.

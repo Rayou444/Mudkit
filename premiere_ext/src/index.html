@@ -20,15 +20,50 @@
     --red: #EB5757;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     font-family: "Segoe UI", system-ui, sans-serif;
     font-size: 12px;
     color: var(--text);
     background: var(--bg);
-    padding: 12px;
     user-select: none;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
   input[type=text] { user-select: text; }
+
+  /* ------------------------------- onglets ------------------------------ */
+
+  .tabs {
+    display: flex;
+    flex: 0 0 auto;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .tabs button {
+    flex: 1;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .4px;
+    text-transform: uppercase;
+    color: var(--dim);
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    padding: 8px 4px 7px;
+    cursor: pointer;
+  }
+  .tabs button:hover { color: var(--text); }
+  .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+
+  .page { display: none; flex: 1 1 auto; min-height: 0; }
+  .page.on { display: flex; flex-direction: column; }
+
+  #page-dl { padding: 12px; overflow: auto; }
+
+  /* ---------------------------- controles communs ---------------------- */
 
   label.t {
     display: block;
@@ -55,6 +90,7 @@
   input::placeholder { color: #6E6E6E; }
 
   .seg { display: grid; gap: 5px; }
+  .seg.h { grid-auto-flow: column; grid-auto-columns: 1fr; }
   .seg button {
     font: inherit;
     font-size: 11.5px;
@@ -64,6 +100,9 @@
     border-radius: 4px;
     padding: 6px 8px;
     cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .seg button:hover { background: var(--panel-h); }
   .seg button.on {
@@ -162,10 +201,245 @@
   }
   .foot a { color: var(--dim); }
   .foot a:hover { color: var(--text); }
-  .hidden { display: none; }
+  .hidden { display: none !important; }
+
+  /* ---------------------------- bibliotheque --------------------------- */
+
+  .libhead {
+    flex: 0 0 auto;
+    padding: 8px 8px 6px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .row { display: flex; gap: 5px; align-items: center; }
+  .row + .row { margin-top: 5px; }
+  .row > input[type=text] { flex: 1; min-width: 0; }
+
+  select#folders {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    font-size: 11.5px;
+    color: var(--text);
+    background: var(--input);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 5px 6px;
+    outline: none;
+  }
+  .icobtn {
+    flex: 0 0 auto;
+    font: inherit;
+    font-size: 12px;
+    line-height: 1;
+    color: var(--text);
+    background: var(--panel-h);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 6px 8px;
+    cursor: pointer;
+  }
+  .icobtn:hover { background: var(--accent); border-color: var(--accent); color: #FFF; }
+
+  .chips { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; }
+  .chips button {
+    font: inherit;
+    font-size: 11px;
+    color: var(--dim);
+    background: var(--input);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 3px 9px;
+    cursor: pointer;
+  }
+  .chips button:hover { color: var(--text); }
+  .chips button.on {
+    color: #FFF;
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  #libstatus {
+    flex: 0 0 auto;
+    padding: 4px 9px;
+    font-size: 10.5px;
+    color: #6E6E6E;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #libstatus.err { color: var(--red); }
+  #libstatus.ok { color: var(--green); }
+
+  #grid {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 8px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(94px, 1fr));
+    gap: 7px;
+    align-content: start;
+  }
+  #grid.list {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .tile {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+    cursor: pointer;
+  }
+  .tile:hover { border-color: var(--accent); }
+  .tile.playing { border-color: var(--green); }
+  .tile .th {
+    position: relative;
+    width: 100%;
+    padding-top: 62%;
+    background: var(--input) no-repeat center center;
+    background-size: cover;
+    overflow: hidden;
+  }
+  .tile .th.sprite { background-size: auto 100%; background-repeat: no-repeat; }
+  .tile .glyph {
+    position: absolute;
+    left: 0; right: 0; top: 0; bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 19px;
+    color: #4A4A4A;
+  }
+  .tile .nm {
+    padding: 3px 4px 4px;
+    font-size: 10px;
+    line-height: 1.25;
+    color: var(--text);
+    height: 27px;
+    overflow: hidden;
+    word-break: break-word;
+  }
+  .tile .dur {
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    font-size: 9px;
+    padding: 0 3px;
+    border-radius: 2px;
+    background: rgba(0,0,0,.72);
+    color: #EEE;
+  }
+  .tile .add {
+    position: absolute;
+    left: 3px;
+    top: 3px;
+    width: 17px;
+    height: 17px;
+    line-height: 15px;
+    text-align: center;
+    font-size: 13px;
+    border-radius: 3px;
+    background: rgba(0,0,0,.6);
+    color: #FFF;
+    opacity: 0;
+    transition: opacity .12s;
+  }
+  .tile:hover .add { opacity: 1; }
+  .tile .add:hover { background: var(--accent); }
+  .tile .pos {
+    position: absolute;
+    left: 0; bottom: 0;
+    height: 2px;
+    background: var(--green);
+    width: 0;
+  }
+
+  /* mode liste compact */
+  #grid.list .tile { display: flex; align-items: center; gap: 7px; padding: 2px; }
+  #grid.list .tile .th { width: 62px; padding-top: 0; height: 34px; flex: 0 0 auto; border-radius: 3px; }
+  #grid.list .tile .nm { height: auto; flex: 1; min-width: 0; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; }
+  #grid.list .tile .dur { position: static; background: none; color: var(--dim); margin-right: 4px; }
+  #grid.list .tile .add { position: static; opacity: .6; flex: 0 0 auto; margin-right: 3px; }
+
+  #more {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: #6E6E6E;
+    font-size: 11px;
+    padding: 8px;
+  }
+
+  .libfoot {
+    flex: 0 0 auto;
+    padding: 7px 8px;
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .hint { margin-top: 5px; font-size: 9.5px; color: #6E6E6E; line-height: 1.45; }
+
+  .empty {
+    grid-column: 1 / -1;
+    padding: 26px 14px;
+    text-align: center;
+    color: #6E6E6E;
+    font-size: 11.5px;
+    line-height: 1.6;
+  }
+
+  /* visionneuse plein panneau (images / video) */
+  #viewer {
+    position: fixed;
+    left: 0; right: 0; top: 0; bottom: 0;
+    background: rgba(0,0,0,.93);
+    display: none;
+    flex-direction: column;
+    z-index: 20;
+  }
+  #viewer.on { display: flex; }
+  #viewer .vbody {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+  }
+  #viewer img, #viewer video { max-width: 100%; max-height: 100%; }
+  #viewer .vmsg { color: #6E6E6E; font-size: 11.5px; text-align: center; line-height: 1.6; padding: 0 16px; }
+  #viewer .vbar {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 7px 8px;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+  }
+  #viewer .vname {
+    flex: 1;
+    min-width: 0;
+    font-size: 11px;
+    color: var(--dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 </style>
 </head>
 <body>
+
+<div class="tabs">
+  <button class="tab on" data-p="dl">Télécharger</button>
+  <button class="tab" data-p="lib">Bibliothèque</button>
+</div>
+
+<!-- ====================== ONGLET TELECHARGEMENT ======================= -->
+<section id="page-dl" class="page on">
 
   <label class="t">Lien</label>
   <input id="url" type="text" spellcheck="false"
@@ -204,6 +478,58 @@
   <div class="foot">Mudkit · fichiers dans Vidéos\Mudkit\Premiere ·
     <a id="upd" href="#">MàJ yt-dlp</a></div>
 
+</section>
+
+<!-- ======================= ONGLET BIBLIOTHEQUE ======================== -->
+<section id="page-lib" class="page">
+
+  <div class="libhead">
+    <div class="row">
+      <select id="folders"><option value="">Aucun dossier</option></select>
+      <button class="icobtn" id="pick" title="Ajouter un dossier">+</button>
+      <button class="icobtn" id="forget" title="Retirer ce dossier de la liste">−</button>
+      <button class="icobtn" id="rescan" title="Rescanner le dossier">⟳</button>
+    </div>
+    <div class="row">
+      <input id="q" type="text" spellcheck="false"
+             placeholder="Rechercher (nom ou sous-dossier)…">
+      <button class="icobtn" id="viewmode" title="Vignettes / liste">▤</button>
+    </div>
+    <div class="chips" id="kinds">
+      <button data-k="all" class="on">Tout</button>
+      <button data-k="audio">Sons</button>
+      <button data-k="video">Vidéos</button>
+      <button data-k="image">Images</button>
+    </div>
+  </div>
+
+  <div id="libstatus">Choisis un dossier pour commencer.</div>
+
+  <div id="grid"></div>
+
+  <div class="libfoot">
+    <div class="seg h" id="libact">
+      <button data-v="insert" class="on">Insérer</button>
+      <button data-v="overwrite">Écraser</button>
+      <button data-v="bin">Chutier</button>
+    </div>
+    <div class="hint">Clic = écouter / voir · <b>+</b> ou double-clic = importer ·
+      volume <input id="vol" type="range" min="0" max="100" value="70"
+      style="vertical-align:middle;width:60px;accent-color:var(--accent)"></div>
+  </div>
+
+</section>
+
+<div id="viewer">
+  <div class="vbody" id="vbody"></div>
+  <div class="vbar">
+    <div class="vname" id="vname"></div>
+    <button class="icobtn" id="vadd" title="Importer dans Premiere">+</button>
+    <button class="icobtn" id="vclose" title="Fermer">✕</button>
+  </div>
+</div>
+
 <script src="panel.js"></script>
+<script src="library.js"></script>
 </body>
 </html>
