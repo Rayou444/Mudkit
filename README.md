@@ -5,9 +5,10 @@ dans une fenêtre native (pywebview + WebView2), backend 100 % Python local.
 
 ## Lancer
 
-Double-clique sur **Mudkit.exe** (ou le raccourci **Mudkit** sur le Bureau /
-menu Démarrer). `Mudkit.exe` est un lanceur : il doit rester dans ce dossier.
-`Mudkit.bat` reste utilisable en secours.
+Raccourci **Mudkit** sur le Bureau ou dans le menu Démarrer (touche Windows →
+« Mudkit »). Le raccourci lance le moteur Python signé du dossier `.venv` —
+compatible avec le Contrôle intelligent des applications de Windows 11, qui
+bloque les exe maison non signés. `Mudkit.bat` reste utilisable en secours.
 
 ## Modules
 
