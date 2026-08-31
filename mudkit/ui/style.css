@@ -739,12 +739,12 @@ button:focus-visible, input:focus-visible, .dropzone:focus-visible {
   object-fit: contain;
   pointer-events: none;
 }
-#cmp-before-wrap {
+.cmp-before-wrap {
   position: absolute;
   inset: 0;
   clip-path: inset(0 calc(100% - var(--x)) 0 0);
 }
-#cmp-divider {
+.cmp-divider {
   position: absolute;
   top: 0;
   bottom: 0;

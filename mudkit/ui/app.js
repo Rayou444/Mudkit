@@ -28,6 +28,7 @@ const S = {
         dest: "", queue: [], current: null, lastInfo: null,
         sec: { on: false, dur: 0, a: 0, b: 0 } },
   cp: { files: [], target: 25, running: false },
+  bg: { files: [], model: "best", running: false, sel: null, results: {} },
   up: { files: [], model: null, scale: 4, format: "png", running: false,
         sel: null, results: {}, scaleUsed: 4 },
   cv: { files: [], target: null, running: false },
@@ -158,7 +159,8 @@ document.addEventListener("keydown", async (e) => {
   if (page === "page-up") upAddPaths(paths);
   else if (page === "page-cv") cvAddPaths(paths);
   else if (page === "page-cp") cpAddPaths(paths);
-  else toast("Va sur Upscaler, Convertisseur ou Compresseur pour coller des fichiers.");
+  else if (page === "page-bg") bgAddPaths(paths);
+  else toast("Va sur un outil (Upscaler, Convertisseur, Compresseur, Détourage) pour coller des fichiers.");
 });
 
 /* ---------------- accueil : moteurs ---------------- */
@@ -799,8 +801,11 @@ function wireUpscaler() {
     toast("Annulation…");
   });
 
-  // comparateur avant / apres
-  const cmp = $("#cmp");
+  wireCmpDrag($("#cmp"));
+}
+
+/* comparateur avant / apres : glisser pour deplacer la ligne */
+function wireCmpDrag(cmp) {
   function track(e) {
     const r = cmp.getBoundingClientRect();
     const x = Math.min(Math.max((e.clientX - r.left) / r.width, 0.02), 0.98);
@@ -853,6 +858,172 @@ function onUpEvent(e) {
     const firstOk = S.up.files.find((f) => S.up.results[f.path]);
     if (firstOk && !S.up.results[S.up.sel]) upSelect(firstOk.path);
     if (firstOk) api("reveal_file", S.up.results[firstOk.path]);
+  }
+}
+
+/* ---------------- detourage ---------------- */
+
+async function bgAddPaths(paths) {
+  if (S.bg.running) return;
+  const infos = await api("file_infos", paths);
+  const imgs = infos.filter((f) => f.category === "image");
+  if (imgs.length !== infos.length)
+    toast("Certains fichiers ne sont pas des images — ignorés.");
+  const known = new Set(S.bg.files.map((f) => f.path));
+  S.bg.files.push(...imgs.filter((f) => !known.has(f.path)));
+  if (!S.bg.sel && S.bg.files.length) S.bg.sel = S.bg.files[0].path;
+  bgChips();
+  bgStage();
+}
+
+function bgChips() {
+  const box = $("#bg-files");
+  box.innerHTML = "";
+  S.bg.files.forEach((f, i) => {
+    const c = document.createElement("div");
+    c.className = "fchip" + (S.bg.sel === f.path ? " sel" : "");
+    c.innerHTML = `
+      <img alt="">
+      <div class="fmeta">
+        <div class="fname"></div>
+        <div class="fsub">${f.size}${f.dims ? " · " + f.dims : ""}</div>
+      </div>
+      <span class="fstate"></span>
+      <button class="fdel" title="Retirer">✕</button>
+      <div class="fprog"></div>`;
+    c.querySelector(".fname").textContent = f.name;
+    box.appendChild(c);
+    api("thumb", f.path).then((src) => {
+      if (src) c.querySelector("img").src = src;
+    });
+    if (S.bg.results[f.path])
+      c.querySelector(".fstate").innerHTML = `<span class="st-ok">✓</span>`;
+    c.addEventListener("click", (e) => {
+      if (e.target.closest(".fdel")) return;
+      bgSelect(f.path);
+    });
+    c.querySelector(".fdel").addEventListener("click", () => {
+      if (S.bg.running) return;
+      S.bg.files.splice(i, 1);
+      delete S.bg.results[f.path];
+      if (S.bg.sel === f.path) S.bg.sel = S.bg.files[0]?.path || null;
+      bgChips();
+      bgStage();
+    });
+  });
+}
+
+async function bgSelect(path) {
+  S.bg.sel = path;
+  $$("#bg-files .fchip").forEach((c, i) =>
+    c.classList.toggle("sel", S.bg.files[i]?.path === path));
+  await bgStage();
+}
+
+async function bgStage() {
+  const empty = $("#bg-empty"), img = $("#bg-preview"), cmp = $("#bg-cmp");
+  const bar = $("#bg-stagebar");
+  const f = S.bg.files.find((x) => x.path === S.bg.sel);
+  if (!f) {
+    empty.classList.remove("hidden");
+    img.classList.add("hidden");
+    cmp.classList.add("hidden");
+    bar.classList.add("hidden");
+    return;
+  }
+  empty.classList.add("hidden");
+  bar.classList.remove("hidden");
+  $("#bg-stage-name").textContent = f.name;
+
+  const out = S.bg.results[f.path];
+  if (out) {
+    const [before, after] = await Promise.all(
+      [preview(f.path), api("preview_png", out)]);
+    $("#bg-cmp-before").src = before || "";
+    $("#bg-cmp-after").src = after || "";
+    cmp.classList.remove("hidden");
+    img.classList.add("hidden");
+    $("#bg-stage-info").textContent = "PNG transparent · à côté de l'originale";
+  } else {
+    img.src = (await preview(f.path)) || "";
+    img.classList.remove("hidden");
+    cmp.classList.add("hidden");
+    $("#bg-stage-info").textContent = f.dims || "";
+  }
+}
+
+function wireCutout() {
+  wireDrop($("#bg-drop"), "images", bgAddPaths);
+
+  $("#bg-models").addEventListener("click", (e) => {
+    const btn = e.target.closest(".model");
+    if (!btn) return;
+    $$("#bg-models .model").forEach((b) => b.classList.remove("on"));
+    btn.classList.add("on");
+    S.bg.model = btn.dataset.v;
+  });
+
+  $("#btn-bg").addEventListener("click", async () => {
+    if (!S.bg.files.length)
+      return toast("Ajoute d'abord des images.", "err");
+    S.bg.running = true;
+    $("#btn-bg").disabled = true;
+    $("#btn-bg-cancel").classList.remove("hidden");
+    await api("start_cutout", {
+      files: S.bg.files.map((f) => f.path),
+      model: S.bg.model,
+    });
+  });
+  $("#btn-bg-cancel").addEventListener("click", () => {
+    api("cancel", "cutout");
+    toast("Annulation après l'image en cours…");
+  });
+
+  wireCmpDrag($("#bg-cmp"));
+}
+
+let bgModelToastShown = false;
+
+function onBgEvent(e) {
+  const chips = $$("#bg-files .fchip");
+  if (e.type === "bg_progress" && chips[e.index]) {
+    if (e.phase === "model") {
+      chips[e.index].querySelector(".fstate").innerHTML =
+        `<span class="spin"></span>`;
+      if (!bgModelToastShown) {
+        bgModelToastShown = true;
+        toast("Première utilisation de ce modèle : téléchargement en cours " +
+              "(une seule fois), ça peut prendre quelques minutes.", "info",
+              9000);
+      }
+    } else {
+      chips[e.index].querySelector(".fstate").innerHTML =
+        `<span class="spin"></span>`;
+    }
+  } else if (e.type === "bg_file_done" && chips[e.index]) {
+    const f = S.bg.files[e.index];
+    if (e.ok) {
+      chips[e.index].querySelector(".fstate").innerHTML =
+        `<span class="st-ok">✓</span>`;
+      if (f) {
+        S.bg.results[f.path] = e.out;
+        if (S.bg.sel === f.path) bgStage();
+      }
+    } else {
+      chips[e.index].querySelector(".fstate").innerHTML =
+        `<span class="st-err" title="${e.error || ""}">✕</span>`;
+      if (e.error) toast(e.error, "err", 7000);
+    }
+  } else if (e.type === "bg_done") {
+    S.bg.running = false;
+    $("#btn-bg").disabled = false;
+    $("#btn-bg-cancel").classList.add("hidden");
+    if (e.cancelled) return toast("Détourage annulé.");
+    toast(`${e.ok}/${e.total} image(s) détourée(s) — glisse le curseur pour comparer`,
+          e.ok === e.total ? "ok" : "err", 6000);
+    const firstOk = S.bg.files.find((f) => S.bg.results[f.path]);
+    if (firstOk && !S.bg.results[S.bg.sel]) bgSelect(firstOk.path);
+    if (firstOk) api("reveal_file", S.bg.results[firstOk.path]);
   }
 }
 
@@ -993,6 +1164,7 @@ window.mudkitEvent = (e) => {
   if (e.type.startsWith("up_")) return onUpEvent(e);
   if (e.type.startsWith("cv_")) return onCvEvent(e);
   if (e.type.startsWith("cp_")) return onCpEvent(e);
+  if (e.type.startsWith("bg_")) return onBgEvent(e);
 
   if (e.type === "install") {
     const pct = e.pct != null ? `${(e.pct * 100).toFixed(0)} %` : (e.done || "…");
@@ -1108,6 +1280,24 @@ function mockApi(method, ...args) {
       return delay(mockImage(false));
     case "preview":
       return delay(mockImage(/\dx_/.test(args[0])), 300);
+    case "preview_png":
+      return delay(mockImage(true), 300);
+    case "start_cutout": {
+      const files = args[0].files;
+      files.forEach((p, i) => {
+        setTimeout(() => {
+          window.mudkitEvent({ type: "bg_progress", index: i, phase: "run" });
+          setTimeout(() => {
+            window.mudkitEvent({ type: "bg_file_done", index: i, ok: true,
+              out: p.replace(/(\.\w+)$/, "_detoure.png") });
+            if (i === files.length - 1)
+              window.mudkitEvent({ type: "bg_done",
+                ok: files.length, total: files.length });
+          }, 1200);
+        }, i * 1400);
+      });
+      return delay(true);
+    }
     case "start_download": {
       let pct = 0;
       const iv = setInterval(() => {
@@ -1167,5 +1357,6 @@ function mockApi(method, ...args) {
   wireUpscaler();
   wireConverter();
   wireCompressor();
+  wireCutout();
   if (MOCK) toast("Mode aperçu navigateur (simulation).");
 })();

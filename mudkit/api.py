@@ -13,7 +13,7 @@ import sys
 import threading
 
 from . import utils, __version__
-from .core import compressor, converter, downloader, upscaler
+from .core import compressor, converter, cutout, downloader, upscaler
 
 IMAGE_FILTER = "Images (*.png;*.jpg;*.jpeg;*.webp;*.bmp)"
 ALL_FILTER = "Tous les fichiers (*.*)"
@@ -171,6 +171,19 @@ class Api:
         """Grande previsualisation base64 d'une image locale."""
         return self._jpeg_data_uri(path, box, 87)
 
+    def preview_png(self, path, box=1400):
+        """Previsualisation base64 en PNG (conserve la transparence)."""
+        try:
+            Image = utils.pil_image()
+            with Image.open(path) as img:
+                img.thumbnail((box, box))
+                buf = io.BytesIO()
+                img.save(buf, "PNG")
+            return ("data:image/png;base64,"
+                    + base64.b64encode(buf.getvalue()).decode())
+        except Exception:  # noqa: BLE001 - apercu facultatif
+            return None
+
     @staticmethod
     def _jpeg_data_uri(path, box, quality):
         try:
@@ -288,6 +301,34 @@ class Api:
                                 "ok": False, "error": str(e)[:300]})
             self._emit({"type": "up_done", "ok": ok, "total": len(files)})
         return self._spawn("upscale", job)
+
+    # ---------------------------------------------------------- detourage
+
+    def start_cutout(self, opts):
+        files, model = opts["files"], opts["model"]
+
+        def job():
+            ok = 0
+            for i, src in enumerate(files):
+                try:
+                    out = cutout.cutout_one(
+                        src, model,
+                        lambda phase, i=i: self._emit(
+                            {"type": "bg_progress", "index": i,
+                             "phase": phase}),
+                        lambda: self._cancelled("cutout"))
+                    ok += 1
+                    self._emit({"type": "bg_file_done", "index": i,
+                                "ok": True, "out": out})
+                except utils.CancelledError:
+                    self._emit({"type": "bg_done", "ok": ok,
+                                "total": len(files), "cancelled": True})
+                    return
+                except Exception as e:  # noqa: BLE001
+                    self._emit({"type": "bg_file_done", "index": i,
+                                "ok": False, "error": str(e)[:300]})
+            self._emit({"type": "bg_done", "ok": ok, "total": len(files)})
+        return self._spawn("cutout", job)
 
     # -------------------------------------------------------- compresseur
 
