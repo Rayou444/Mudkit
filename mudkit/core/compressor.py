@@ -1,4 +1,5 @@
-"""Compression video a taille cible (ffmpeg x264 deux passes)."""
+"""Compression a taille cible : videos (ffmpeg deux passes) et images."""
+import io
 import os
 import subprocess
 import tempfile
@@ -35,6 +36,68 @@ def _run_pass(cmd, duration, progress, is_cancelled, base, span):
     if proc.returncode != 0:
         tail = (err or "echec ffmpeg").strip().splitlines()
         raise RuntimeError(tail[-1][:300] if tail else "echec ffmpeg")
+
+
+def compress_image_to_size(src, target_mb, progress, is_cancelled):
+    """Compresse une image sous target_mb. Retourne (sortie, taille octets).
+
+    Baisse d'abord la qualite, puis la definition si necessaire. Sortie en
+    JPEG, ou WebP si l'image a de la transparence (pour la conserver).
+    """
+    Image = utils.pil_image()
+    target = int(target_mb * 1024 * 1024)
+    orig = os.path.getsize(src)
+    if orig <= target:
+        raise RuntimeError(
+            f"deja sous la cible ({utils.human_size(orig)}) — rien a faire")
+
+    with Image.open(src) as im:
+        has_alpha = (im.mode in ("RGBA", "LA")
+                     or (im.mode == "P" and "transparency" in im.info))
+        img = im.convert("RGBA" if has_alpha else "RGB")
+    fmt, ext = ("WEBP", "webp") if has_alpha else ("JPEG", "jpg")
+
+    folder, name = os.path.split(src)
+    base, _ = os.path.splitext(name)
+    out = os.path.join(folder, f"{base}_{target_mb:g}Mo.{ext}")
+
+    # garde la definition tant que possible, puis reduit progressivement
+    steps = [(scale, q)
+             for scale in (1.0, 0.85, 0.7, 0.55, 0.4, 0.3, 0.2)
+             for q in (85, 70, 55, 40, 30)]
+    resized, last_scale = img, 1.0
+    for i, (scale, q) in enumerate(steps):
+        if is_cancelled():
+            raise utils.CancelledError()
+        if scale != last_scale:
+            w, h = img.size
+            resized = img.resize((max(1, int(w * scale)),
+                                  max(1, int(h * scale))),
+                                 Image.Resampling.LANCZOS)
+            last_scale = scale
+        kw = {"quality": q}
+        if fmt == "JPEG":
+            kw["optimize"] = True
+        buf = io.BytesIO()
+        resized.save(buf, fmt, **kw)
+        progress(min((i + 1) / len(steps), 0.98))
+        if buf.tell() <= target:
+            with open(out, "wb") as f:
+                f.write(buf.getvalue())
+            progress(1.0)
+            return out, buf.tell()
+    raise RuntimeError("impossible de descendre sous la cible — "
+                       "vise une taille plus grande")
+
+
+def compress_any(src, target_mb, progress, is_cancelled):
+    """Compresse une video ou une image selon le type du fichier."""
+    if converter.category(src) == "image":
+        return compress_image_to_size(src, target_mb, progress, is_cancelled)
+    if converter.category(src) == "video":
+        return compress_to_size(src, target_mb, progress, is_cancelled)
+    raise RuntimeError("ce type de fichier ne se compresse pas ici "
+                       "(videos et images seulement)")
 
 
 def compress_to_size(src, target_mb, progress, is_cancelled):

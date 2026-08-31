@@ -138,6 +138,31 @@ class Api:
                         "size": size, "category": converter.category(p)})
         return out
 
+    def paste_files(self):
+        """Contenu du presse-papiers : fichiers copies, ou image (capture).
+
+        Une image bitmap est enregistree dans Images\\Mudkit puis renvoyee
+        comme un fichier normal.
+        """
+        try:
+            utils.pil_image()  # leve la limite anti-bombe avant ImageGrab
+            from PIL import ImageGrab
+            data = ImageGrab.grabclipboard()
+        except Exception:  # noqa: BLE001 - presse-papiers illisible
+            data = None
+        if isinstance(data, list):
+            return {"paths": [p for p in data if os.path.isfile(p)]}
+        if data is not None and hasattr(data, "save"):
+            folder = os.path.join(os.path.expanduser("~"), "Pictures",
+                                  "Mudkit")
+            os.makedirs(folder, exist_ok=True)
+            import time
+            path = os.path.join(
+                folder, time.strftime("capture_%Y%m%d_%H%M%S") + ".png")
+            data.save(path)
+            return {"paths": [path], "captured": True}
+        return {"paths": []}
+
     def thumb(self, path, box=128):
         """Miniature base64 d'une image locale."""
         return self._jpeg_data_uri(path, box, 80)
@@ -273,13 +298,16 @@ class Api:
         def job():
             ok = 0
             for i, src in enumerate(files):
-                self._emit({"type": "cp_progress", "index": i, "pct": 0})
+                is_img = converter.category(src) == "image"
+                self._emit({"type": "cp_progress", "index": i, "pct": 0,
+                            "img": is_img})
                 try:
                     orig = os.path.getsize(src)
-                    out, size = compressor.compress_to_size(
+                    out, size = compressor.compress_any(
                         src, target_mb,
-                        lambda p, i=i: self._emit(
-                            {"type": "cp_progress", "index": i, "pct": p}),
+                        lambda p, i=i, im=is_img: self._emit(
+                            {"type": "cp_progress", "index": i, "pct": p,
+                             "img": im}),
                         lambda: self._cancelled("compress"))
                     ok += 1
                     self._emit({"type": "cp_file_done", "index": i,

@@ -128,6 +128,39 @@ document.addEventListener("contextmenu", (e) => {
   if (!e.target.closest("input, textarea")) e.preventDefault();
 });
 
+/* Ctrl+V global : colle des fichiers copies dans l'Explorateur, une capture
+   d'ecran du presse-papiers, ou un lien sur la page Telechargeur. */
+document.addEventListener("keydown", async (e) => {
+  if (!(e.ctrlKey && e.key.toLowerCase() === "v")) return;
+  if (e.target && e.target.closest
+      && e.target.closest("input, textarea")) return; // collage normal
+  const page = document.querySelector(".page.active")?.id;
+
+  if (page === "page-dl") {
+    try {
+      const txt = ((await navigator.clipboard.readText()) || "").trim();
+      if (/^https?:\/\//i.test(txt)) {
+        $("#dl-url").value = txt;
+        toast("Lien collé — Entrée pour analyser, ou clique Télécharger.");
+        return;
+      }
+    } catch { /* presse-papiers texte illisible : on tente les fichiers */ }
+  }
+
+  const res = await api("paste_files");
+  const paths = (res && res.paths) || [];
+  if (!paths.length) {
+    toast("Rien à coller — copie d'abord des fichiers, une image ou un lien.");
+    return;
+  }
+  if (res.captured)
+    toast("Capture du presse-papiers enregistrée dans Images\\Mudkit.");
+  if (page === "page-up") upAddPaths(paths);
+  else if (page === "page-cv") cvAddPaths(paths);
+  else if (page === "page-cp") cpAddPaths(paths);
+  else toast("Va sur Upscaler, Convertisseur ou Compresseur pour coller des fichiers.");
+});
+
 /* ---------------- accueil : moteurs ---------------- */
 
 function engineState(id, html) { $(`#${id} .eng-state`).innerHTML = html; }
@@ -516,18 +549,21 @@ function cpTarget() {
   return custom > 0 ? custom : S.cp.target;
 }
 
+async function cpAddPaths(paths) {
+  if (S.cp.running) return;
+  const infos = await api("file_infos", paths);
+  const good = infos.filter(
+    (f) => f.category === "video" || f.category === "image");
+  if (good.length !== infos.length)
+    toast("Vidéos et images seulement ici — le reste est ignoré.");
+  const known = new Set(S.cp.files.map((f) => f.path));
+  S.cp.files.push(...good.filter((f) => !known.has(f.path)));
+  $("#cp-done").classList.add("hidden");
+  cpRows();
+}
+
 function wireCompressor() {
-  wireDrop($("#cp-drop"), "any", async (paths) => {
-    if (S.cp.running) return;
-    const infos = await api("file_infos", paths);
-    const vids = infos.filter((f) => f.category === "video");
-    if (vids.length !== infos.length)
-      toast("Seules les vidéos sont acceptées ici — le reste est ignoré.");
-    const known = new Set(S.cp.files.map((f) => f.path));
-    S.cp.files.push(...vids.filter((f) => !known.has(f.path)));
-    $("#cp-done").classList.add("hidden");
-    cpRows();
-  });
+  wireDrop($("#cp-drop"), "any", cpAddPaths);
 
   wirePills("#cp-targets", (v) => {
     S.cp.target = +v;
@@ -567,7 +603,9 @@ function onCpEvent(e) {
     bar.classList.remove("hidden");
     bar.querySelector("i").style.width = (e.pct * 100).toFixed(0) + "%";
     row.querySelector(".qstats").textContent =
-      e.pct < 0.5 ? " · passe 1 — analyse" : " · passe 2 — encodage";
+      e.img ? " · optimisation…"
+            : (e.pct < 0.5 ? " · passe 1 — analyse"
+                           : " · passe 2 — encodage");
     row.querySelector(".fstate").innerHTML =
       `${(e.pct * 100).toFixed(0)} %`;
   } else if (e.type === "cp_file_done" && rows[e.index]) {
@@ -592,7 +630,7 @@ function onCpEvent(e) {
     if (e.cancelled) return toast("Compression annulée.");
     $("#cp-done").classList.remove("hidden");
     $("#cp-done-txt").textContent =
-      `${e.ok}/${e.total} vidéo(s) compressée(s)`;
+      `${e.ok}/${e.total} fichier(s) compressé(s)`;
     toast(e.ok === e.total ? "Compression terminée"
                            : "Terminé, avec des erreurs",
           e.ok === e.total ? "ok" : "err");
@@ -717,19 +755,21 @@ function scaleDims(dims, k) {
   return m ? `${m[1] * k}×${m[2] * k}` : "";
 }
 
+async function upAddPaths(paths) {
+  if (S.up.running) return;
+  const infos = await api("file_infos", paths);
+  const imgs = infos.filter((f) => f.category === "image");
+  if (imgs.length !== infos.length)
+    toast("Certains fichiers ne sont pas des images — ignorés.");
+  const known = new Set(S.up.files.map((f) => f.path));
+  S.up.files.push(...imgs.filter((f) => !known.has(f.path)));
+  if (!S.up.sel && S.up.files.length) S.up.sel = S.up.files[0].path;
+  upChips();
+  upStage();
+}
+
 function wireUpscaler() {
-  wireDrop($("#up-drop"), "images", async (paths) => {
-    if (S.up.running) return;
-    const infos = await api("file_infos", paths);
-    const imgs = infos.filter((f) => f.category === "image");
-    if (imgs.length !== infos.length)
-      toast("Certains fichiers ne sont pas des images — ignorés.");
-    const known = new Set(S.up.files.map((f) => f.path));
-    S.up.files.push(...imgs.filter((f) => !known.has(f.path)));
-    if (!S.up.sel && S.up.files.length) S.up.sel = S.up.files[0].path;
-    upChips();
-    upStage();
-  });
+  wireDrop($("#up-drop"), "images", upAddPaths);
 
   wirePills("#pills-scale", (v) => (S.up.scale = +v));
   wirePills("#pills-upformat", (v) => (S.up.format = v));
@@ -874,19 +914,21 @@ async function cvTargets() {
     .join("");
 }
 
+async function cvAddPaths(paths) {
+  if (S.cv.running) return;
+  const infos = await api("file_infos", paths);
+  const valid = infos.filter((f) => f.category);
+  if (valid.length !== infos.length)
+    toast("Certains fichiers ont un format non géré — ignorés.");
+  const known = new Set(S.cv.files.map((f) => f.path));
+  S.cv.files.push(...valid.filter((f) => !known.has(f.path)));
+  $("#cv-done").classList.add("hidden");
+  cvRows();
+  cvTargets();
+}
+
 function wireConverter() {
-  wireDrop($("#cv-drop"), "any", async (paths) => {
-    if (S.cv.running) return;
-    const infos = await api("file_infos", paths);
-    const valid = infos.filter((f) => f.category);
-    if (valid.length !== infos.length)
-      toast("Certains fichiers ont un format non géré — ignorés.");
-    const known = new Set(S.cv.files.map((f) => f.path));
-    S.cv.files.push(...valid.filter((f) => !known.has(f.path)));
-    $("#cv-done").classList.add("hidden");
-    cvRows();
-    cvTargets();
-  });
+  wireDrop($("#cv-drop"), "any", cvAddPaths);
 
   wirePills("#cv-targets", (v) => (S.cv.target = v));
 
@@ -1060,6 +1102,8 @@ function mockApi(method, ...args) {
         : { category: "image",
             targets: ["png", "jpg", "webp", "bmp", "ico"] });
     }
+    case "paste_files":
+      return delay({ paths: ["C:\\demo\\colle_1.png", "C:\\demo\\colle_2.jpg"] });
     case "thumb":
       return delay(mockImage(false));
     case "preview":
