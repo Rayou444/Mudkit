@@ -97,16 +97,20 @@ function wireDrop(zone, kind, onPaths) {
   });
   zone.addEventListener("dragleave", () => zone.classList.remove("drag"));
   zone.addEventListener("drop", (e) => {
+    // Les chemins des fichiers deposes arrivent cote Python (handler DOM
+    // pywebview) puis reviennent via l'evenement "dropped" — pas ici.
     e.preventDefault();
     zone.classList.remove("drag");
-    const paths = [...(e.dataTransfer.files || [])]
-      .map((f) => f.pywebviewFullPath)
-      .filter(Boolean);
-    if (paths.length) onPaths(paths);
-    else if ((e.dataTransfer.files || []).length)
-      toast("Le glisser-déposer n'a pas fonctionné — clique sur la zone à la place.", "err");
   });
 }
+
+/* Routage des depots resolus cote Python : zone -> fonction d'ajout. */
+const DROP_ROUTES = {
+  "#up-drop": (p) => upAddPaths(p),
+  "#cv-drop": (p) => cvAddPaths(p),
+  "#cp-drop": (p) => cpAddPaths(p),
+  "#bg-drop": (p) => bgAddPaths(p),
+};
 
 async function preview(path) {
   if (!previewCache.has(path))
@@ -1160,6 +1164,11 @@ function onCvEvent(e) {
 /* ---------------- evenements Python ---------------- */
 
 window.mudkitEvent = (e) => {
+  if (e.type === "dropped") {
+    const route = DROP_ROUTES[e.zone];
+    if (route && e.paths && e.paths.length) route(e.paths);
+    return;
+  }
   if (e.type.startsWith("dl_")) return onDlEvent(e);
   if (e.type.startsWith("up_")) return onUpEvent(e);
   if (e.type.startsWith("cv_")) return onCvEvent(e);

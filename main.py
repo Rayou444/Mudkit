@@ -59,6 +59,39 @@ def _set_window_icon():
     threading.Thread(target=job, daemon=True).start()
 
 
+def _wire_drops(window, api):
+    """Enregistre les zones de depot cote Python.
+
+    pywebview ne fournit les chemins complets des fichiers deposes qu'aux
+    handlers DOM enregistres cote Python (jamais au JS de la page) : le
+    natif ne capture d'ailleurs les chemins que si au moins un handler
+    'drop' Python existe (_dnd_state['num_listeners'] > 0).
+    """
+    from webview.dom import DOMEventHandler
+
+    def make_handler(zone):
+        def on_drop(e):
+            files = (e.get("dataTransfer") or {}).get("files") or []
+            paths = [f.get("pywebviewFullPath") for f in files
+                     if f.get("pywebviewFullPath")]
+            if paths:
+                api._emit({"type": "dropped", "zone": zone,  # noqa: SLF001
+                           "paths": paths})
+        return on_drop
+
+    wired = 0
+    for zone in ("#up-drop", "#cv-drop", "#cp-drop", "#bg-drop"):
+        try:
+            el = window.dom.get_element(zone)
+            if el is not None:
+                el.events.drop += DOMEventHandler(make_handler(zone),
+                                                  prevent_default=True)
+                wired += 1
+        except Exception:  # noqa: BLE001 - zone absente : on continue
+            pass
+    print(f"zones de depot cablees: {wired}", flush=True)
+
+
 def _post_start(window):
     _set_window_icon()
 
@@ -79,6 +112,7 @@ def main():
         background_color="#081019",
     )
     api.attach(window)
+    window.events.loaded += lambda *a: _wire_drops(window, api)
     webview.start(_post_start, window, http_server=True)
 
 
