@@ -167,6 +167,23 @@ document.addEventListener("keydown", async (e) => {
   else toast("Va sur un outil (Upscaler, Convertisseur, Compresseur, Détourage) pour coller des fichiers.");
 });
 
+/* ---------------- thème clair / sombre (mémorisé côté Python) --------- */
+
+function applyThemePref(theme) {
+  if (theme === "light") document.documentElement.dataset.theme = "light";
+  else delete document.documentElement.dataset.theme;
+}
+
+function wireTheme(st) {
+  applyThemePref(st.theme);
+  $("#theme-toggle").addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "light"
+      ? "dark" : "light";
+    applyThemePref(next);
+    api("set_pref", "theme", next);
+  });
+}
+
 /* ---------------- accueil : moteurs ---------------- */
 
 function engineState(id, html) { $(`#${id} .eng-state`).innerHTML = html; }
@@ -1359,6 +1376,7 @@ function mockApi(method, ...args) {
 (async function init() {
   const st = await api("ui_ready");
   $("#app-ver").textContent = "v" + st.version;
+  wireTheme(st);
   renderEngines(st);
   renderModels(st);
   wireDownloader(st);

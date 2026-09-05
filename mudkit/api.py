@@ -75,7 +75,17 @@ class Api:
             "upscayl_models": utils.has_upscayl_models(),
             "models": upscaler.available_models(),
             "ytdlp": self._ytdlp_version(),
+            "theme": cfg.get("theme", "dark"),
         }
+
+    def set_pref(self, key, value):
+        """Memorise une preference d'interface (theme, ...)."""
+        if key not in ("theme",):
+            return False
+        cfg = utils.load_config()
+        cfg[key] = value
+        utils.save_config(cfg)
+        return True
 
     @staticmethod
     def _ytdlp_version():

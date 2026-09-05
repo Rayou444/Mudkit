@@ -109,7 +109,7 @@ def main():
         os.path.join(ROOT, "mudkit", "ui", "index.html"),
         js_api=api,
         width=1220, height=800, min_size=(980, 640),
-        background_color="#081019",
+        background_color="#0A0E14",
     )
     api.attach(window)
     window.events.loaded += lambda *a: _wire_drops(window, api)
