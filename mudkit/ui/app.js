@@ -127,7 +127,10 @@ function go(page) {
     p.classList.toggle("active", p.id === `page-${page}`));
 }
 $$("[data-page]").forEach((b) =>
-  b.addEventListener("click", () => go(b.dataset.page)));
+  b.addEventListener("click", () => {
+    go(b.dataset.page);
+    api("set_pref", "page", b.dataset.page); // rouvre sur le dernier outil
+  }));
 
 document.addEventListener("contextmenu", (e) => {
   if (!e.target.closest("input, textarea")) e.preventDefault();
@@ -1377,6 +1380,7 @@ function mockApi(method, ...args) {
   const st = await api("ui_ready");
   $("#app-ver").textContent = "v" + st.version;
   wireTheme(st);
+  if (st.page && $(`#page-${st.page}`)) go(st.page);
   renderEngines(st);
   renderModels(st);
   wireDownloader(st);

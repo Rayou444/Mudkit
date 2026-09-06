@@ -97,7 +97,7 @@ button:focus-visible, input:focus-visible, .dropzone:focus-visible {
 .app { display: flex; height: 100vh; }
 
 .rail {
-  width: 236px;
+  width: 224px;
   flex: none;
   display: flex;
   flex-direction: column;
@@ -185,16 +185,18 @@ html[data-theme="light"] .theme-btn .ic-sun { display: none; }
 .page-body { flex: 1; display: flex; min-height: 0; }
 
 .controls {
-  width: 356px;
+  width: 340px;
   flex: none;
   overflow-y: auto;
-  padding: 18px;
+  padding: 16px 16px 0;
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
+/* Zone de travail : colonne centree de largeur constante d'une page a
+   l'autre (les scenes plein cadre des pages image font exception). */
 .work {
   flex: 1;
   min-width: 0;
@@ -202,8 +204,11 @@ html[data-theme="light"] .theme-btn .ic-sun { display: none; }
   padding: 24px 28px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  align-items: center;
+  gap: 14px;
 }
+.work > * { width: 100%; max-width: 760px; }
+.work.stagewrap > * { max-width: none; }
 
 /* ---------------- étapes (cartes) ---------------- */
 
@@ -211,7 +216,7 @@ html[data-theme="light"] .theme-btn .ic-sun { display: none; }
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  padding: 16px;
+  padding: 14px;
 }
 .step-head { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
 .step-num {
@@ -237,7 +242,18 @@ html[data-theme="light"] .theme-btn .ic-sun { display: none; }
   gap: 8px;
 }
 
-.cta-block { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding-top: 4px; }
+/* Bouton d'action : colle a la suite des etapes, et reste visible en bas
+   de la colonne quand les etapes depassent (sticky). */
+.cta-block {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0 16px;
+  background: linear-gradient(to bottom, transparent, var(--bg) 26%);
+}
 
 /* ---------------- boutons ---------------- */
 
@@ -295,8 +311,12 @@ html[data-theme="light"] .theme-btn .ic-sun { display: none; }
 .url-row input::placeholder { color: var(--faint); }
 .url-row input:focus { border-color: var(--brand-text); box-shadow: 0 0 0 3px var(--brand-ring); }
 
-.pills { display: flex; flex-wrap: wrap; gap: 7px; }
-.pills.two { display: grid; grid-template-columns: 1fr 1fr; }
+/* Pilules : toujours en grille reguliere (jamais de retour a la ligne
+   inegal), le nombre de colonnes est fixe par la classe. */
+.pills { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.pills.two { grid-template-columns: 1fr 1fr; }
+.pills.grid3 { grid-template-columns: repeat(3, 1fr); }
+.pills.grid4 { grid-template-columns: repeat(4, 1fr); }
 .pills button {
   font: inherit;
   font-size: 12.5px;
@@ -305,7 +325,12 @@ html[data-theme="light"] .theme-btn .ic-sun { display: none; }
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 8px 14px;
+  padding: 8px 6px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
   cursor: pointer;
   transition: background .15s, color .15s, border-color .15s;
 }
@@ -315,7 +340,7 @@ html[data-theme="light"] .theme-btn .ic-sun { display: none; }
   border-color: var(--brand-text);
   color: var(--brand-text);
 }
-.pills-empty { color: var(--faint); font-size: 12.5px; padding: 4px 0; }
+.pills-empty { color: var(--faint); font-size: 12.5px; padding: 4px 0; grid-column: 1 / -1; }
 
 .check-row {
   display: flex;
@@ -494,7 +519,6 @@ html[data-theme="light"] .theme-btn .ic-sun { display: none; }
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   overflow: hidden;
-  max-width: 580px;
   box-shadow: var(--shadow);
 }
 .media-card img {
@@ -559,7 +583,6 @@ html[data-theme="light"] .theme-btn .ic-sun { display: none; }
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   padding: 18px;
-  max-width: 580px;
   box-shadow: var(--shadow);
 }
 .prog-head { display: flex; justify-content: space-between; font-size: 13.5px; margin-bottom: 10px; }
@@ -603,7 +626,7 @@ html[data-theme="light"] .theme-btn .ic-sun { display: none; }
 
 /* lignes fichiers */
 
-.frows { display: flex; flex-direction: column; gap: 8px; max-width: 680px; }
+.frows { display: flex; flex-direction: column; gap: 8px; }
 .frow {
   display: flex;
   align-items: center;
@@ -663,7 +686,7 @@ html[data-theme="light"] .theme-btn .ic-sun { display: none; }
 
 /* file d'attente */
 
-.queue { max-width: 680px; }
+.queue { }
 .queue-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .queue-actions { display: flex; gap: 6px; }
 .qthumb { width: 56px; height: 34px; border-radius: 8px; object-fit: cover; background: var(--surface-2); flex: none; }
@@ -745,7 +768,8 @@ html[data-theme="light"] .theme-btn .ic-sun { display: none; }
 
 /* ---------------- paramètres ---------------- */
 
-.home-col { flex: 1; overflow-y: auto; padding: 24px 28px; display: flex; flex-direction: column; gap: 16px; max-width: 680px; }
+.home-col { flex: 1; overflow-y: auto; padding: 24px 28px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.home-col > * { width: 100%; max-width: 760px; }
 .panel {
   background: var(--surface);
   border: 1px solid var(--line);

@@ -6,7 +6,7 @@ import sys
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
-from mudkit import dnsfix
+from mudkit import dnsfix, utils
 
 # Resolveur tolerant aux pannes DNS (bascule DoH automatique).
 dnsfix.activate_if_needed()
@@ -92,6 +92,41 @@ def _wire_drops(window, api):
     print(f"zones de depot cablees: {wired}", flush=True)
 
 
+def _window_geometry():
+    """Taille et position d'ouverture.
+
+    Reprend la geometrie memorisee si elle tient encore dans l'ecran,
+    sinon ouvre a ~80 % de l'ecran principal, centre.
+    """
+    cfg = utils.load_config()
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()  # meme reglage que pywebview
+        sw = ctypes.windll.user32.GetSystemMetrics(0)
+        sh = ctypes.windll.user32.GetSystemMetrics(1)
+    except Exception:  # noqa: BLE001
+        sw, sh = 1920, 1080
+
+    geo = cfg.get("window") or {}
+    w, h = geo.get("w"), geo.get("h")
+    if not (w and h and 900 <= w <= sw and 600 <= h <= sh):
+        w = min(max(1100, int(sw * 0.80)), 1720, sw - 40)
+        h = min(max(720, int(sh * 0.82)), 1080, sh - 80)
+    x, y = geo.get("x"), geo.get("y")
+    if x is None or y is None or not (0 <= x <= sw - 300 and 0 <= y <= sh - 300):
+        x, y = (sw - w) // 2, max(0, (sh - h) // 2 - 20)
+    return w, h, x, y
+
+
+def _save_geometry(window):
+    try:
+        cfg = utils.load_config()
+        cfg["window"] = {"w": int(window.width), "h": int(window.height),
+                         "x": int(window.x), "y": int(window.y)}
+        utils.save_config(cfg)
+    except Exception:  # noqa: BLE001 - confort, jamais bloquant
+        pass
+
+
 def _post_start(window):
     _set_window_icon()
 
@@ -104,15 +139,17 @@ def main():
         pass
 
     api = Api()
+    w, h, x, y = _window_geometry()
     window = webview.create_window(
         "Mudkit",
         os.path.join(ROOT, "mudkit", "ui", "index.html"),
         js_api=api,
-        width=1220, height=800, min_size=(980, 640),
+        width=w, height=h, x=x, y=y, min_size=(980, 640),
         background_color="#0A0E14",
     )
     api.attach(window)
     window.events.loaded += lambda *a: _wire_drops(window, api)
+    window.events.closing += lambda *a: _save_geometry(window)
     webview.start(_post_start, window, http_server=True)
 
 

@@ -76,11 +76,12 @@ class Api:
             "models": upscaler.available_models(),
             "ytdlp": self._ytdlp_version(),
             "theme": cfg.get("theme", "dark"),
+            "page": cfg.get("page", "dl"),
         }
 
     def set_pref(self, key, value):
-        """Memorise une preference d'interface (theme, ...)."""
-        if key not in ("theme",):
+        """Memorise une preference d'interface (theme, dernier outil...)."""
+        if key not in ("theme", "page"):
             return False
         cfg = utils.load_config()
         cfg[key] = value
