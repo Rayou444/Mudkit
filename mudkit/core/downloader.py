@@ -20,7 +20,7 @@ COOKIES_HELP = (
     "Ce lien semble demander une connexion. Solution : installe "
     "l'extension \u00ab Get cookies.txt LOCALLY \u00bb dans ton navigateur, "
     "va sur le site concerne (connecte), exporte, et enregistre le fichier "
-    "sous C:\\Users\\Rayan\\Mudkit\\cookies.txt \u2014 puis relance.")
+    f"sous {COOKIES_FILE} — puis relance.")
 
 
 def has_cookies():

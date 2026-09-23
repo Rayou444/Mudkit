@@ -24,7 +24,7 @@ if (nodeReq) {
   crypto = nodeReq("crypto"); spawn = nodeReq("child_process").spawn;
 }
 
-var MUDKIT = "C:\\Users\\Rayan\\Mudkit";
+var MUDKIT = os ? os.homedir() + "\\Mudkit" : "";   /* %USERPROFILE%\Mudkit */
 var FFMPEG = MUDKIT + "\\bin\\ffmpeg.exe";
 var FFPROBE = MUDKIT + "\\bin\\ffprobe.exe";
 var LOCALAPP = (typeof process !== "undefined" && process.env && process.env.LOCALAPPDATA)

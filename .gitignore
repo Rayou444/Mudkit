@@ -20,3 +20,7 @@ config.json
 
 # divers
 *.log
+
+# Python portable (installateur) et paquets de release
+python/
+packaging/dist/

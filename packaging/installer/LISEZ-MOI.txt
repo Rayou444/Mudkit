@@ -1,0 +1,39 @@
+﻿MUDKIT - installation
+=====================
+
+Mudkit = une appli (téléchargeur YouTube/TikTok/Insta..., upscaler IA,
+convertisseur, compresseur, détourage) + un panneau pour Premiere Pro
+(bibliothèque de médias + téléchargeur direct dans la timeline).
+
+Rien d'autre à installer : tout est inclus (Python, ffmpeg, modèles d'upscale).
+
+INSTALLER
+---------
+1. Clic droit sur le zip > « Extraire tout ».
+2. Ferme Premiere Pro s'il est ouvert.
+3. Double-clic sur « INSTALLER Mudkit.bat ».
+   Si Windows affiche « Windows a protégé votre ordinateur » :
+   « Informations complémentaires » > « Exécuter quand même ».
+4. C'est tout. Une fenêtre noire affiche l'avancement (1-2 min).
+
+UTILISER
+--------
+- L'appli : raccourci « Mudkit » sur le Bureau (ou touche Windows > Mudkit).
+- Dans Premiere Pro : Fenêtre > Extensions > Mudkit.
+- Les fichiers téléchargés arrivent dans  Vidéos\Mudkit.
+
+Au premier détourage d'image, Mudkit télécharge le modèle IA (~1 Go) :
+c'est normal que ça prenne un moment la première fois.
+
+METTRE À JOUR
+-------------
+Extraire la nouvelle version et relancer « INSTALLER Mudkit.bat »
+par-dessus : les réglages et les téléchargements sont conservés.
+
+DÉSINSTALLER
+------------
+Double-clic sur « Desinstaller Mudkit.bat » (garde ce dossier pour ça).
+Les fichiers de Vidéos\Mudkit ne sont pas supprimés.
+
+Configuration requise : Windows 10 ou 11 (64 bits), Premiere Pro 2020 ou plus
+récent pour le panneau.

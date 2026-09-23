@@ -1,12 +1,23 @@
 /* Panneau Mudkit pour Premiere Pro — telechargement via le moteur Mudkit. */
 "use strict";
 
-var PY = "C:\\Users\\Rayan\\Mudkit\\.venv\\Scripts\\python.exe";
-var SCRIPT = "C:\\Users\\Rayan\\Mudkit\\premiere_dl.py";
-
 var nodeReq = (window.cep_node && window.cep_node.require)
   ? window.cep_node.require
   : (typeof require !== "undefined" ? require : null);
+
+/* Mudkit vit toujours dans %USERPROFILE%\Mudkit. Moteur Python : python\
+   (portable, PC installes via l'installateur) ou .venv (PC de dev). */
+var MUDKIT = nodeReq ? nodeReq("os").homedir() + "\\Mudkit" : "";
+var SCRIPT = MUDKIT + "\\premiere_dl.py";
+var PY = (function () {
+  var cands = [MUDKIT + "\\python\\python.exe",
+               MUDKIT + "\\.venv\\Scripts\\python.exe"];
+  if (!nodeReq) return cands[0];
+  var fs = nodeReq("fs");
+  for (var i = 0; i < cands.length; i++)
+    if (fs.existsSync(cands[i])) return cands[i];
+  return cands[0];
+})();
 
 var mode = "h264";
 var action = "insert";
@@ -132,11 +143,11 @@ $("#upd").addEventListener("click", function (e) {
   if (!nodeReq || proc) return;
   var spawn = nodeReq("child_process").spawn;
   status("Mise à jour de yt-dlp…");
-  var code = "import sys; sys.path.insert(0, r'C:\\Users\\Rayan\\Mudkit'); " +
+  var code = "import sys; sys.path.insert(0, " + JSON.stringify(MUDKIT) + "); " +
     "from mudkit import dnsfix; dnsfix.activate_if_needed(); " +
     "sys.argv = ['pip', 'install', '-q', '-U', 'yt-dlp']; " +
     "from pip._internal.cli.main import main; sys.exit(main())";
-  var p = spawn(PY, ["-c", code], { windowsHide: true });
+  var p = spawn(PY, ["-E", "-s", "-c", code], { windowsHide: true });
   p.on("exit", function (c) {
     status(c === 0 ? "yt-dlp à jour OK" : "Échec de la mise à jour de yt-dlp",
            c === 0 ? "ok" : "err");
@@ -158,7 +169,8 @@ $("#go").addEventListener("click", function () {
   if (!url) return status("Colle d'abord un lien.", "err");
   if (!nodeReq) return status("Node est désactivé dans ce panneau (CEP).", "err");
 
-  var args = ["-u", SCRIPT, url, mode];
+  // -E -s : ignore un eventuel Python perso (PYTHONPATH, site utilisateur)
+  var args = ["-E", "-s", "-u", SCRIPT, url, mode];
   if ($("#cut").checked) {
     var tin = parseTime($("#t-in").value) || 0;
     var tout = parseTime($("#t-out").value);
