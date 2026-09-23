@@ -10,6 +10,22 @@ Raccourci **Mudkit** sur le Bureau ou dans le menu Démarrer (touche Windows →
 compatible avec le Contrôle intelligent des applications de Windows 11, qui
 bloque les exe maison non signés. `Mudkit.bat` reste utilisable en secours.
 
+## Installer sur un autre PC / faire une release
+
+Le zip des [releases GitHub](https://github.com/Rayou444/Mudkit/releases) est
+autonome : Python portable, `bin/` et panneau Premiere signé inclus. On
+l'extrait, puis double-clic sur `INSTALLER Mudkit.bat` → installe dans
+`%USERPROFILE%\Mudkit` (+ raccourcis + panneau). L'app et le panneau
+cherchent `python\` (install) puis `.venv\` (ce PC de dev) : aucun chemin en
+dur.
+
+Nouvelle release (re-signe aussi le panneau) :
+
+```
+powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Version v2.9
+gh release create v2.9 packaging\dist\Mudkit-v2.9.zip
+```
+
 ## Modules
 
 | Module | Ce que ça fait |
