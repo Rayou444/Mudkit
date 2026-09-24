@@ -451,6 +451,13 @@ html:not([data-theme="dark"]) .theme-btn .ic-sun { display: none; }
   color: var(--on-ink);
   box-shadow: 0 8px 16px -10px rgba(0, 0, 0, .6);
 }
+/* Le format (2e choix d'une meme etape) se selectionne en orange : on ne
+   le confond pas avec la qualite / l'echelle juste au-dessus, en noir. */
+.pills.alt button.on {
+  background: var(--accent);
+  color: #FFF;
+  box-shadow: 0 8px 16px -10px rgba(242, 138, 54, .9);
+}
 .pills-empty { color: var(--faint); font-size: 12.5px; padding: 4px 0; grid-column: 1 / -1; }
 
 .check-row {
