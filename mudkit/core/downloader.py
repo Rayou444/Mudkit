@@ -17,10 +17,10 @@ _AUTH_HINTS = ("sign in", "log in", "login", "logged", "cookies", "cookie",
                "authentication", "restricted", "connexion", "not a bot")
 
 COOKIES_HELP = (
-    "Ce lien semble demander une connexion. Solution : installe "
-    "l'extension \u00ab Get cookies.txt LOCALLY \u00bb dans ton navigateur, "
-    "va sur le site concerne (connecte), exporte, et enregistre le fichier "
-    f"sous {COOKIES_FILE} — puis relance.")
+    "Ce lien demande d'être connecté. Installe l'extension "
+    "\u00ab Get cookies.txt LOCALLY \u00bb dans ton navigateur, va sur le "
+    "site (connecté), exporte les cookies et enregistre le fichier sous "
+    f"{COOKIES_FILE}, puis relance.")
 
 
 def has_cookies():

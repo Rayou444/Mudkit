@@ -96,7 +96,7 @@ def download(asset, progress=None):
                 h.update(chunk)
         if h.hexdigest() != digest.split(":", 1)[1]:
             os.remove(path)
-            raise RuntimeError("fichier de mise a jour corrompu, reessaie")
+            raise RuntimeError("fichier de mise à jour corrompu, réessaie")
     return path
 
 
@@ -108,7 +108,7 @@ def apply(zip_path):
     cookies.txt ne sont pas touches. Renvoie la nouvelle version.
     """
     if is_dev():
-        raise RuntimeError("pas de mise a jour automatique sur le PC de dev")
+        raise RuntimeError("pas de mise à jour automatique sur le PC de dev")
     with tempfile.TemporaryDirectory() as tmp:
         with zipfile.ZipFile(zip_path) as zf:
             zf.extractall(tmp)

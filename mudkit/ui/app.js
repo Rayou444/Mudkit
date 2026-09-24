@@ -61,13 +61,13 @@ const previewCache = new Map();
 
 const MODEL_META = [
   ["standard",   "Upscayl Standard",  "le meilleur rendu général", true],
-  ["ultrasharp", "UltraSharp",        "détails très nets — textes, UI, archi", true],
+  ["ultrasharp", "UltraSharp",        "détails très nets : textes, UI, archi", true],
   ["remacri",    "Remacri",           "photos naturelles, sans sur-netteté", true],
   ["digital",    "Art numérique",     "dessins, illustrations, jeux", true],
   ["lite",       "Upscayl Lite",      "léger et rapide", true],
-  ["photo",      "Real-ESRGAN Photo", "photos — modèle classique", false],
-  ["anime",      "Real-ESRGAN Anime", "anime / manga — classique", false],
-  ["fast",       "Rapide",            "polyvalent, x2–x4 natif", false],
+  ["photo",      "Real-ESRGAN Photo", "photos, modèle classique", false],
+  ["anime",      "Real-ESRGAN Anime", "anime et manga, classique", false],
+  ["fast",       "Rapide",            "polyvalent, x2 à x4 natif", false],
 ];
 
 /* ---------------- helpers ---------------- */
@@ -116,9 +116,9 @@ async function copyReport(context) {
   const txt = await api("error_report", context || null);
   if (!txt) return;
   if (await copyText(txt))
-    toast("Rapport copié — colle-le (Ctrl+V) dans ton message.", "ok");
+    toast("Rapport copié. Colle-le (Ctrl+V) dans ton message.", "ok");
   else
-    toast("Copie impossible — Paramètres › Ouvrir le journal.", "info", 7000);
+    toast("Copie impossible. Ouvre le journal depuis les Paramètres.", "info", 7000);
 }
 
 /* Notification Windows en fin de tache longue (Python ne l'affiche que si
@@ -205,6 +205,17 @@ $$("[data-page]").forEach((b) =>
     api("set_pref", "page", b.dataset.page); // rouvre sur le dernier outil
   }));
 
+// barre compacte (fenetre etroite) : le libelle reste en infobulle
+$$(".nav-item").forEach((b) => { b.title = b.textContent.trim(); });
+
+// un titre encore trop long (2 lignes max) montre le texte complet au survol
+document.addEventListener("mouseover", (e) => {
+  const el = e.target.closest && e.target.closest(".fname, .stagebar span");
+  if (el && !el.title && (el.scrollWidth > el.clientWidth + 1
+                          || el.scrollHeight > el.clientHeight + 1))
+    el.title = el.textContent.trim();
+});
+
 document.addEventListener("contextmenu", (e) => {
   if (!e.target.closest("input, textarea")) e.preventDefault();
 });
@@ -222,7 +233,7 @@ document.addEventListener("keydown", async (e) => {
       const txt = ((await navigator.clipboard.readText()) || "").trim();
       if (/^https?:\/\//i.test(txt)) {
         $("#dl-url").value = txt;
-        toast("Lien collé — Entrée pour analyser, ou clique Télécharger.");
+        toast("Lien collé. Entrée pour l'analyser, ou clique sur Télécharger.");
         return;
       }
     } catch { /* presse-papiers texte illisible : on tente les fichiers */ }
@@ -231,7 +242,7 @@ document.addEventListener("keydown", async (e) => {
   const res = await api("paste_files");
   const paths = (res && res.paths) || [];
   if (!paths.length) {
-    toast("Rien à coller — copie d'abord des fichiers, une image ou un lien.");
+    toast("Rien à coller. Copie d'abord des fichiers, une image ou un lien.");
     return;
   }
   if (res.captured)
@@ -422,7 +433,7 @@ function wireDownloader(st) {
       const txt = await navigator.clipboard.readText();
       if (txt) $("#dl-url").value = txt.trim();
     } catch {
-      toast("Impossible de lire le presse-papiers — colle avec Ctrl+V.", "err");
+      toast("Presse-papiers illisible, colle avec Ctrl+V.", "err");
     }
   });
 
@@ -633,7 +644,7 @@ function histRender() {
     row.querySelector('[data-act="again"]').addEventListener("click", () => {
       $("#dl-url").value = it.url;
       $("#dl-url").focus();
-      toast("Lien recollé — clique Télécharger (ou Entrée pour l'analyser).");
+      toast("Lien recollé, il ne reste qu'à cliquer sur Télécharger.");
     });
     row.addEventListener("dblclick", (ev) => {
       if (!ev.target.closest("button") && it.exists)
@@ -781,7 +792,7 @@ async function cpAddPaths(paths) {
   const good = infos.filter(
     (f) => f.category === "video" || f.category === "image");
   if (good.length !== infos.length)
-    toast("Vidéos et images seulement ici — le reste est ignoré.");
+    toast("Ici, seulement des vidéos et des images. Le reste est ignoré.");
   const known = new Set(S.cp.files.map((f) => f.path));
   S.cp.files.push(...good.filter((f) => !known.has(f.path)));
   $("#cp-done").classList.add("hidden");
@@ -832,8 +843,8 @@ function onCpEvent(e) {
     bar.querySelector("i").style.width = (e.pct * 100).toFixed(0) + "%";
     row.querySelector(".qstats").textContent =
       e.img ? " · optimisation…"
-            : (e.pct < 0.5 ? " · passe 1 — analyse"
-                           : " · passe 2 — encodage");
+            : (e.pct < 0.5 ? " · analyse (1/2)"
+                           : " · encodage (2/2)");
     row.querySelector(".fstate").innerHTML =
       `${(e.pct * 100).toFixed(0)} %`;
   } else if (e.type === "cp_file_done" && rows[e.index]) {
@@ -969,7 +980,7 @@ async function upStage() {
     $("#cmp-after").src = after || "";
     cmp.classList.remove("hidden");
     img.classList.add("hidden");
-    const dims = f.dims ? ` — ${f.dims} → ${scaleDims(f.dims, S.up.scaleUsed)}` : "";
+    const dims = f.dims ? ` · ${f.dims} → ${scaleDims(f.dims, S.up.scaleUsed)}` : "";
     $("#up-stage-dims").textContent = `x${S.up.scaleUsed}${dims}`;
   } else {
     img.src = (await preview(f.path)) || "";
@@ -990,7 +1001,7 @@ async function upAddPaths(paths) {
   if (!infos) return;
   const imgs = infos.filter((f) => f.category === "image");
   if (imgs.length !== infos.length)
-    toast("Certains fichiers ne sont pas des images — ignorés.");
+    toast("Certains fichiers ne sont pas des images, ils sont ignorés.");
   const known = new Set(S.up.files.map((f) => f.path));
   S.up.files.push(...imgs.filter((f) => !known.has(f.path)));
   if (!S.up.sel && S.up.files.length) S.up.sel = S.up.files[0].path;
@@ -1082,7 +1093,7 @@ function onUpEvent(e) {
     stopRunning(S.up, "#btn-up", "#btn-up-cancel");
     if (e.cancelled) return toast("Upscale annulé.");
     if (e.error) toast("Erreur : " + e.error, "err", 9000);
-    toast(`${e.ok}/${e.total} image(s) agrandie(s) — glisse le curseur pour comparer`,
+    toast(`${e.ok}/${e.total} image(s) agrandie(s). Glisse le curseur pour comparer.`,
           e.ok === e.total ? "ok" : "err", 6000);
     notifyIfLong(S.up.t0, "Upscale terminé",
                  `${e.ok}/${e.total} image(s) agrandie(s)`);
@@ -1100,7 +1111,7 @@ async function bgAddPaths(paths) {
   if (!infos) return;
   const imgs = infos.filter((f) => f.category === "image");
   if (imgs.length !== infos.length)
-    toast("Certains fichiers ne sont pas des images — ignorés.");
+    toast("Certains fichiers ne sont pas des images, ils sont ignorés.");
   const known = new Set(S.bg.files.map((f) => f.path));
   S.bg.files.push(...imgs.filter((f) => !known.has(f.path)));
   if (!S.bg.sel && S.bg.files.length) S.bg.sel = S.bg.files[0].path;
@@ -1256,7 +1267,7 @@ function onBgEvent(e) {
     stopRunning(S.bg, "#btn-bg", "#btn-bg-cancel");
     if (e.cancelled) return toast("Détourage annulé.");
     if (e.error) toast("Erreur : " + e.error, "err", 9000);
-    toast(`${e.ok}/${e.total} image(s) détourée(s) — glisse le curseur pour comparer`,
+    toast(`${e.ok}/${e.total} image(s) détourée(s). Glisse le curseur pour comparer.`,
           e.ok === e.total ? "ok" : "err", 6000);
     notifyIfLong(S.bg.t0, "Détourage terminé",
                  `${e.ok}/${e.total} image(s) détourée(s)`);
@@ -1309,7 +1320,7 @@ async function cvTargets() {
   const res = await api("detect_targets", S.cv.files.map((f) => f.path));
   if (!res) return;
   if (!res.category) {
-    box.innerHTML = `<span class="pills-empty">mélange de types — garde un seul type à la fois</span>`;
+    box.innerHTML = `<span class="pills-empty">types mélangés, garde un seul type à la fois</span>`;
     badge.classList.add("hidden");
     S.cv.target = null;
     return;
@@ -1331,7 +1342,7 @@ async function cvAddPaths(paths) {
   if (!infos) return;
   const valid = infos.filter((f) => f.category);
   if (valid.length !== infos.length)
-    toast("Certains fichiers ont un format non géré — ignorés.");
+    toast("Certains formats ne sont pas gérés, ces fichiers sont ignorés.");
   const known = new Set(S.cv.files.map((f) => f.path));
   S.cv.files.push(...valid.filter((f) => !known.has(f.path)));
   $("#cv-done").classList.add("hidden");
@@ -1420,7 +1431,7 @@ function updRender(state, extra = {}) {
   };
   const i = U.info;
   if (state === "dev") {
-    desc.textContent = "Version de développement — mises à jour via git.";
+    desc.textContent = "Version de développement, mises à jour via git.";
   } else if (state === "checking") {
     desc.textContent = "Recherche de mises à jour…";
     box.innerHTML = `<span class="spin"></span>`;
@@ -1433,7 +1444,7 @@ function updRender(state, extra = {}) {
     btn("Vérifier", false, () => checkUpdate(true));
   } else if (state === "available") {
     desc.textContent = i.full_only
-      ? `Version ${i.latest} disponible — elle demande le nouvel installateur.`
+      ? `Version ${i.latest} disponible. Elle demande le nouvel installateur.`
       : `Version ${i.latest} disponible.`;
     if (i.full_only)
       btn("Télécharger l'installateur", true, () => api("open_url", i.page));
@@ -1448,7 +1459,7 @@ function updRender(state, extra = {}) {
       ? `${(extra.pct * 100).toFixed(0)} %` : "…";
   } else if (state === "ready") {
     desc.textContent = `Version ${extra.version} installée`
-      + (extra.premiere ? " — redémarre aussi Premiere Pro pour le panneau."
+      + (extra.premiere ? ". Redémarre aussi Premiere Pro pour le panneau."
                         : ".");
     btn("Redémarrer Mudkit", true, () => api("update_restart"));
   }
@@ -1480,7 +1491,7 @@ function onUpdEvent(e) {
   if (e.type === "upd_progress") return updRender("downloading", e);
   if (e.ok) {
     updRender("ready", e);
-    return toast(`Mudkit ${e.version} est installé — redémarre pour l'utiliser.`,
+    return toast(`Mudkit ${e.version} est installé. Redémarre pour en profiter.`,
                  "ok", 9000, { label: "Redémarrer", run: () => api("update_restart") });
   }
   if (e.full_only) {
@@ -1537,7 +1548,7 @@ window.mudkitEvent = (e) => {
       }
     });
   } else if (e.type === "ytdlp_updated") {
-    toast(e.ok ? `yt-dlp à jour (${e.version}) — effectif au prochain lancement`
+    toast(e.ok ? `yt-dlp à jour (${e.version}), actif au prochain lancement.`
                : "Échec de la mise à jour de yt-dlp", e.ok ? "ok" : "err", 7000);
     api("ui_ready").then((st) => st && renderEngines(st));
   }
@@ -1556,7 +1567,7 @@ function mockImage(sharp) {
     g.fillStyle = "#F09A47";
     g.beginPath(); g.arc(320, 200, 90, 0, 7); g.fill();
     g.fillStyle = "#fff"; g.font = "bold 28px Segoe UI";
-    g.fillText("APRÈS — net", 240, 350);
+    g.fillText("APRÈS", 240, 350);
   } else {
     const s = document.createElement("canvas");
     s.width = 64; s.height = 40;
@@ -1567,7 +1578,7 @@ function mockImage(sharp) {
     g.imageSmoothingEnabled = false;
     g.drawImage(s, 0, 0, 640, 400);
     g.fillStyle = "#fff"; g.font = "bold 28px Segoe UI";
-    g.fillText("AVANT — flou", 236, 350);
+    g.fillText("AVANT", 236, 350);
   }
   return c.toDataURL("image/jpeg", .9);
 }
@@ -1609,7 +1620,7 @@ function mockApi(method, ...args) {
         models: MODEL_META.map(([key]) => ({ key, available: true })) });
     case "analyze_url":
       return delay({ ok: true, info: { kind: "video",
-        title: "Une super vidéo de démonstration — les gobous à l'état sauvage",
+        title: "Les gobous à l'état sauvage, la vidéo de démo",
         channel: "Chaîne Démo", duration: "12:34", duration_s: 754,
         thumb: mockImage(true) } }, 900);
     case "start_compress": {

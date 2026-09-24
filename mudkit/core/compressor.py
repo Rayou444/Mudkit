@@ -34,8 +34,8 @@ def _run_pass(cmd, duration, progress, is_cancelled, base, span):
                 pass
     _, err = proc.communicate()
     if proc.returncode != 0:
-        tail = (err or "echec ffmpeg").strip().splitlines()
-        raise RuntimeError(tail[-1][:300] if tail else "echec ffmpeg")
+        tail = (err or "échec de ffmpeg").strip().splitlines()
+        raise RuntimeError(tail[-1][:300] if tail else "échec de ffmpeg")
 
 
 def compress_image_to_size(src, target_mb, progress, is_cancelled):
@@ -49,7 +49,7 @@ def compress_image_to_size(src, target_mb, progress, is_cancelled):
     orig = os.path.getsize(src)
     if orig <= target:
         raise RuntimeError(
-            f"deja sous la cible ({utils.human_size(orig)}) — rien a faire")
+            f"déjà sous la cible ({utils.human_size(orig)}), rien à faire")
 
     with Image.open(src) as im:
         has_alpha = (im.mode in ("RGBA", "LA")
@@ -86,7 +86,7 @@ def compress_image_to_size(src, target_mb, progress, is_cancelled):
                 f.write(buf.getvalue())
             progress(1.0)
             return out, buf.tell()
-    raise RuntimeError("impossible de descendre sous la cible — "
+    raise RuntimeError("impossible de descendre sous la cible, "
                        "vise une taille plus grande")
 
 
@@ -107,21 +107,21 @@ def compress_to_size(src, target_mb, progress, is_cancelled):
     calcule pour viser la taille cible (marge de 6 % pour le conteneur).
     """
     if not utils.has_ffmpeg():
-        raise RuntimeError("ffmpeg n'est pas installe")
+        raise RuntimeError("ffmpeg n'est pas installé")
     orig = os.path.getsize(src)
     if orig <= target_mb * 1024 * 1024:
         raise RuntimeError(
-            f"deja sous la cible ({utils.human_size(orig)}) — rien a faire")
+            f"déjà sous la cible ({utils.human_size(orig)}), rien à faire")
     duration = converter._duration_seconds(src)  # noqa: SLF001 - meme paquet
     if not duration:
-        raise RuntimeError("duree de la video introuvable")
+        raise RuntimeError("durée de la vidéo introuvable")
 
     total_kbps = target_mb * 8192 * 0.94 / duration
     audio_kbps = 128 if total_kbps > 1000 else 96 if total_kbps > 400 else 64
     video_kbps = total_kbps - audio_kbps
     if video_kbps < 30:
         raise RuntimeError(
-            f"cible trop petite pour {duration:.0f}s de video — "
+            f"cible trop petite pour {duration:.0f} s de vidéo, "
             "vise une taille plus grande")
 
     # reduit la definition si le debit est trop maigre pour la source

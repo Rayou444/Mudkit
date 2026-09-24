@@ -61,7 +61,7 @@ def download_model(key, progress=None):
             h.update(chunk)
     if h.hexdigest() != md5:
         os.remove(part)
-        raise RuntimeError("modele telecharge corrompu, reessaie")
+        raise RuntimeError("modèle téléchargé corrompu, réessaie")
     os.replace(part, dest)
     return dest
 
