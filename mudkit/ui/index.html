@@ -65,6 +65,8 @@
     <div class="rail-foot">
       <span id="net-dot" class="dot"></span>
       <span id="app-ver"></span>
+      <button id="upd-pill" class="upd-pill hidden"
+              title="Une nouvelle version de Mudkit est disponible">Mise à jour</button>
       <button id="theme-toggle" class="theme-btn" title="Thème clair / sombre">
         <svg class="ic-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"
           fill="none" stroke="currentColor" stroke-width="1.8"/>
@@ -81,7 +83,7 @@
 
     <!-- ~~~~~~~~~~~ COMPRESSEUR ~~~~~~~~~~~ -->
     <section id="page-cp" class="page">
-      <div class="page-head">
+      <div class="page-head" data-wm="COMPRESSER">
         <div>
           <h1>Compresseur</h1>
           <p>Fais tenir une vidéo ou une image sous une taille donnée — parfait pour Discord.</p>
@@ -119,19 +121,21 @@
           </div>
 
           <div class="cta-block">
-            <button id="btn-cp" class="btn cta wide">Compresser</button>
+            <button id="btn-cp" class="btn cta wide"><span>Compresser</span><span class="cta-ico"><svg viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
             <button id="btn-cp-cancel" class="btn wide hidden">Annuler</button>
           </div>
         </aside>
 
         <div class="work">
           <div id="cp-empty" class="placeholder">
-            <svg viewBox="0 0 24 24"><path d="M9 8V4H4m11 0v4h5M9 16v4H4m11 4v-4h5M4 12h16"
-              fill="none" stroke="currentColor" stroke-width="1.5"
-              stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <strong>Ajoute des vidéos ou des images à gauche</strong>
-            <span>Choisis une taille cible et Mudkit se débrouille pour finir
-              juste en dessous. Astuce : Ctrl+V colle des fichiers copiés.</span>
+            <div class="hero-title">Allège
+              <span class="hero-pill"><svg viewBox="0 0 24 24"><path d="M9 8V4H4m11 0v4h5M9 16v4H4m11 4v-4h5M4 12h16"
+                fill="none" stroke="currentColor" stroke-width="2.2"
+                stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              tes fichiers</div>
+            <span class="hero-sub">Choisis une taille cible : Mudkit se débrouille
+              pour finir juste en dessous. Ctrl+V colle des fichiers copiés.</span>
+            <div class="hero-chips"><span>Discord</span><span>2 passes</span><span>Images</span></div>
           </div>
           <div id="cp-files" class="frows"></div>
           <div id="cp-done" class="done-block hidden">
@@ -148,7 +152,7 @@
 
     <!-- ~~~~~~~~~~~ DETOURAGE ~~~~~~~~~~~ -->
     <section id="page-bg" class="page">
-      <div class="page-head">
+      <div class="page-head" data-wm="DÉTOURER">
         <div>
           <h1>Détourage</h1>
           <p>Supprime l'arrière-plan par IA (BiRefNet) — 100 % local, sortie PNG transparent.</p>
@@ -188,7 +192,7 @@
           </div>
 
           <div class="cta-block">
-            <button id="btn-bg" class="btn cta wide">Détourer</button>
+            <button id="btn-bg" class="btn cta wide"><span>Détourer</span><span class="cta-ico"><svg viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
             <button id="btn-bg-cancel" class="btn wide hidden">Annuler</button>
           </div>
         </aside>
@@ -196,15 +200,17 @@
         <div class="work stagewrap">
           <div id="bg-stage" class="stage">
             <div id="bg-empty" class="placeholder">
-              <svg viewBox="0 0 24 24">
-                <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor"
-                  stroke-width="1.4" stroke-dasharray="3.4 3"/>
-                <path d="M12 11.5a2.4 2.4 0 1 0 0-4.8 2.4 2.4 0 0 0 0 4.8Zm-4 6c.6-2.4 2-3.6 4-3.6s3.4 1.2 4 3.6"
-                  fill="none" stroke="currentColor" stroke-width="1.4"
-                  stroke-linecap="round"/></svg>
-              <strong>Ajoute des images à gauche</strong>
-              <span>Le résultat s'affiche ici sur damier (la transparence),
-                avec un comparateur avant / après.</span>
+              <div class="hero-title">Détoure
+                <span class="hero-pill"><svg viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-dasharray="3.4 3"/>
+                  <path d="M12 11.5a2.4 2.4 0 1 0 0-4.8 2.4 2.4 0 0 0 0 4.8Zm-4 6c.6-2.4 2-3.6 4-3.6s3.4 1.2 4 3.6"
+                    fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round"/></svg></span>
+                en un clic</div>
+              <span class="hero-sub">Le résultat s'affiche ici sur damier (la
+                transparence), avec un comparateur avant / après.</span>
+              <div class="hero-chips"><span>100 % local</span><span>PNG transparent</span><span>BiRefNet</span></div>
             </div>
             <img id="bg-preview" class="stage-img hidden" alt="">
             <div id="bg-cmp" class="cmp hidden">
@@ -234,14 +240,26 @@
 
     <!-- ~~~~~~~~~~~ PARAMETRES ~~~~~~~~~~~ -->
     <section id="page-set" class="page">
-      <div class="page-head">
+      <div class="page-head" data-wm="RÉGLAGES">
         <div>
           <h1>Paramètres</h1>
-          <p>Moteurs embarqués et mises à jour.</p>
+          <p>Version, moteurs embarqués et diagnostic.</p>
         </div>
       </div>
       <div class="page-body">
         <div class="home-col">
+
+          <div class="panel">
+            <div class="panel-title">Mudkit</div>
+            <div class="engine">
+              <div class="eng-info">
+                <span class="eng-name">Version <span id="upd-cur"></span></span>
+                <span class="eng-desc" id="upd-desc">…</span>
+              </div>
+              <div class="eng-state" id="upd-state"></div>
+            </div>
+            <div id="upd-notes" class="upd-notes hidden"></div>
+          </div>
 
           <div class="panel">
             <div class="panel-title">Moteurs embarqués</div>
@@ -275,13 +293,28 @@
             </div>
           </div>
 
+          <div class="panel">
+            <div class="panel-title">Diagnostic</div>
+            <div class="engine">
+              <div class="eng-info">
+                <span class="eng-name">Rapport d'erreur</span>
+                <span class="eng-desc">Un souci ? Copie le rapport et colle-le
+                  dans ton message : il contient le journal d'activité.</span>
+              </div>
+              <div class="eng-state">
+                <button id="btn-report" class="btn sm">Copier le rapport</button>
+                <button id="btn-logs" class="btn sm">Ouvrir le journal</button>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     </section>
 
     <!-- ~~~~~~~~~~~ TELECHARGEUR ~~~~~~~~~~~ -->
     <section id="page-dl" class="page active">
-      <div class="page-head">
+      <div class="page-head" data-wm="TÉLÉCHARGER">
         <div>
           <h1>Téléchargeur</h1>
           <p>YouTube, TikTok, Insta, Twitter/X, Twitch… — les liens s'enchaînent dans une file.</p>
@@ -360,7 +393,7 @@
           </div>
 
           <div class="cta-block">
-            <button id="btn-dl" class="btn cta wide">Télécharger</button>
+            <button id="btn-dl" class="btn cta wide"><span>Télécharger</span><span class="cta-ico"><svg viewBox="0 0 24 24"><path d="M12 5v13m0 0 5.5-5.5M12 18l-5.5-5.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
             <button id="btn-dl-cancel" class="btn wide hidden">
               Annuler le téléchargement en cours</button>
           </div>
@@ -368,12 +401,11 @@
 
         <div class="work">
           <div id="dl-empty" class="placeholder">
-            <svg viewBox="0 0 24 24"><path d="M12 4v11m0 0 5-5m-5 5-5-5M4.5 20h15"
-              fill="none" stroke="currentColor" stroke-width="1.5"
-              stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <strong>Colle un lien à gauche</strong>
-            <span>YouTube, TikTok, Insta, Twitter/X, Twitch… Ajoute plusieurs liens :
-              ils se téléchargent l'un après l'autre.</span>
+            <div class="hero-title">Colle un <span class="hero-pill mascot"></span>
+              lien, Mudkit fait le reste</div>
+            <span class="hero-sub">Ajoute plusieurs liens : ils se téléchargent
+              l'un après l'autre, en haute qualité ou en audio seul.</span>
+            <div class="hero-chips"><span>YouTube</span><span>TikTok</span><span>Insta</span><span>X</span><span>Twitch</span></div>
           </div>
 
           <div id="dl-media" class="media-card hidden">
@@ -414,6 +446,17 @@
             </div>
             <div id="dl-qitems" class="frows"></div>
           </div>
+
+          <div id="dl-history" class="history hidden">
+            <div class="queue-head">
+              <span class="step-title">Historique</span>
+              <span class="queue-actions">
+                <button id="btn-hist-clear" class="btn sm">Tout effacer</button>
+              </span>
+            </div>
+            <div id="dl-hitems" class="frows"></div>
+            <button id="btn-hist-more" class="btn sm hist-more hidden">Afficher plus</button>
+          </div>
         </div>
 
       </div>
@@ -421,7 +464,7 @@
 
     <!-- ~~~~~~~~~~~ UPSCALER ~~~~~~~~~~~ -->
     <section id="page-up" class="page">
-      <div class="page-head">
+      <div class="page-head" data-wm="UPSCALE">
         <div>
           <h1>Upscaler</h1>
           <p>Agrandissement d'images par IA, en local sur ton GPU.</p>
@@ -466,7 +509,7 @@
           </div>
 
           <div class="cta-block">
-            <button id="btn-up" class="btn cta wide">Agrandir</button>
+            <button id="btn-up" class="btn cta wide"><span>Agrandir</span><span class="cta-ico"><svg viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
             <button id="btn-up-cancel" class="btn wide hidden">Annuler</button>
           </div>
         </aside>
@@ -474,11 +517,14 @@
         <div class="work stagewrap">
           <div id="up-stage" class="stage">
             <div id="up-empty" class="placeholder">
-              <svg viewBox="0 0 24 24"><path d="M4 20h16M7 20V9l5-5 5 5v11M12 4v5"
-                fill="none" stroke="currentColor" stroke-width="1.5"
-                stroke-linecap="round" stroke-linejoin="round"/></svg>
-              <strong>Ajoute des images à gauche</strong>
-              <span>L'aperçu s'affiche ici, avec un comparateur avant / après une fois l'image agrandie.</span>
+              <div class="hero-title">Agrandis
+                <span class="hero-pill"><svg viewBox="0 0 24 24"><path d="M4 20h16M7 20V9l5-5 5 5v11M12 4v5"
+                  fill="none" stroke="currentColor" stroke-width="2.2"
+                  stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                tes images</div>
+              <span class="hero-sub">L'aperçu s'affiche ici, avec un comparateur
+                avant / après une fois l'image agrandie.</span>
+              <div class="hero-chips"><span>x2 · x3 · x4</span><span>GPU</span><span>Upscayl</span></div>
             </div>
             <img id="up-preview" class="stage-img hidden" alt="">
             <div id="cmp" class="cmp hidden">
@@ -508,7 +554,7 @@
 
     <!-- ~~~~~~~~~~~ CONVERTISSEUR ~~~~~~~~~~~ -->
     <section id="page-cv" class="page">
-      <div class="page-head">
+      <div class="page-head" data-wm="CONVERTIR">
         <div>
           <h1>Convertisseur</h1>
           <p>Images, audio, vidéo — en lot.</p>
@@ -536,18 +582,21 @@
           </div>
 
           <div class="cta-block">
-            <button id="btn-cv" class="btn cta wide">Convertir</button>
+            <button id="btn-cv" class="btn cta wide"><span>Convertir</span><span class="cta-ico"><svg viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
             <button id="btn-cv-cancel" class="btn wide hidden">Annuler</button>
           </div>
         </aside>
 
         <div class="work">
           <div id="cv-empty" class="placeholder">
-            <svg viewBox="0 0 24 24"><path d="M20 8H6.5M17 4.5 20.5 8 17 11.5M4 16h13.5M7 12.5 3.5 16 7 19.5"
-              fill="none" stroke="currentColor" stroke-width="1.5"
-              stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <strong>Ajoute des fichiers à gauche</strong>
-            <span>La file de conversion s'affiche ici, avec la progression de chaque fichier.</span>
+            <div class="hero-title">Change
+              <span class="hero-pill"><svg viewBox="0 0 24 24"><path d="M20 8H6.5M17 4.5 20.5 8 17 11.5M4 16h13.5M7 12.5 3.5 16 7 19.5"
+                fill="none" stroke="currentColor" stroke-width="2.2"
+                stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              de format</div>
+            <span class="hero-sub">La file de conversion s'affiche ici, avec la
+              progression de chaque fichier.</span>
+            <div class="hero-chips"><span>Images</span><span>Audio</span><span>Vidéo</span><span>En lot</span></div>
           </div>
           <div id="cv-files" class="frows"></div>
           <div id="cv-done" class="done-block hidden">

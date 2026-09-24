@@ -27,8 +27,18 @@ c'est normal que ça prenne un moment la première fois.
 
 METTRE À JOUR
 -------------
-Extraire la nouvelle version et relancer « INSTALLER Mudkit.bat »
-par-dessus : les réglages et les téléchargements sont conservés.
+Automatique : quand une nouvelle version sort, Mudkit la propose au
+lancement (pastille orange « Mise à jour », ou Paramètres > Mudkit).
+Un clic, Mudkit redémarre, c'est fait (le panneau Premiere aussi).
+
+Si Mudkit demande « le nouvel installateur », télécharge le zip qu'il
+indique et relance « INSTALLER Mudkit.bat » par-dessus : les réglages et
+les téléchargements sont conservés.
+
+UN PROBLÈME ?
+-------------
+Paramètres > Diagnostic > « Copier le rapport », puis colle-le dans ton
+message à Rayan : il contient tout ce qu'il faut pour comprendre.
 
 DÉSINSTALLER
 ------------

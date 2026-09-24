@@ -6,7 +6,12 @@ import sys
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
-from mudkit import dnsfix, utils
+from mudkit import logs  # noqa: E402
+
+# En premier : sous pythonw il n'y a pas de console, tout va au journal.
+logs.setup()
+
+from mudkit import dnsfix, notify, utils  # noqa: E402
 
 # Resolveur tolerant aux pannes DNS (bascule DoH automatique).
 dnsfix.activate_if_needed()
@@ -117,12 +122,12 @@ def _window_geometry():
     return w, h, x, y
 
 
-def _save_geometry(window):
+def _on_closing(window):
+    notify.cleanup()
     try:
-        cfg = utils.load_config()
-        cfg["window"] = {"w": int(window.width), "h": int(window.height),
-                         "x": int(window.x), "y": int(window.y)}
-        utils.save_config(cfg)
+        utils.update_config(window={
+            "w": int(window.width), "h": int(window.height),
+            "x": int(window.x), "y": int(window.y)})
     except Exception:  # noqa: BLE001 - confort, jamais bloquant
         pass
 
@@ -145,11 +150,13 @@ def main():
         os.path.join(ROOT, "mudkit", "ui", "index.html"),
         js_api=api,
         width=w, height=h, x=x, y=y, min_size=(980, 640),
-        background_color="#0A0E14",
+        # meme fond que le theme choisi : pas de flash au demarrage
+        background_color=("#0B0E14" if utils.load_config().get("theme")
+                          == "dark" else "#F3ECE0"),
     )
     api.attach(window)
     window.events.loaded += lambda *a: _wire_drops(window, api)
-    window.events.closing += lambda *a: _save_geometry(window)
+    window.events.closing += lambda *a: _on_closing(window)
     webview.start(_post_start, window, http_server=True)
 
 

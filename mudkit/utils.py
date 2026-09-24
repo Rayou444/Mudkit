@@ -4,12 +4,21 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import urllib.request
 import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN_DIR = os.path.join(ROOT, "bin")
 CONFIG_PATH = os.path.join(ROOT, "config.json")
+
+# Donnees par utilisateur (journal, historique) : hors du dossier
+# d'installation, que les mises a jour reecrivent. Le panneau Premiere
+# range deja son cache dans lib-cache\ ici.
+DATA_DIR = os.path.join(
+    os.environ.get("LOCALAPPDATA")
+    or os.path.join(os.path.expanduser("~"), "AppData", "Local"), "Mudkit")
+LOG_DIR = os.path.join(DATA_DIR, "logs")
 
 DEFAULT_DOWNLOAD_DIR = os.path.join(os.path.expanduser("~"), "Videos", "Mudkit")
 
@@ -88,8 +97,7 @@ def nvenc_available():
                         "color=black:s=256x256:d=0.3", "-c:v", "h264_nvenc",
                         "-f", "null", "-"])
         ok = r.returncode == 0
-    cfg["nvenc"] = ok
-    save_config(cfg)
+    update_config(nvenc=ok)
     return ok
 
 
@@ -106,6 +114,9 @@ def has_realesrgan():
 
 # ---------------------------------------------------------------- config
 
+_config_lock = threading.Lock()
+
+
 def load_config():
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -115,11 +126,41 @@ def load_config():
 
 
 def save_config(cfg):
+    """Ecriture atomique : plusieurs threads (geometrie, preferences, test
+    NVENC) ecrivent ce fichier, un json a moitie ecrit serait perdu."""
+    with _config_lock:
+        write_json(CONFIG_PATH, cfg)
+
+
+def update_config(**values):
+    """Lire-modifier-ecrire sous verrou : deux threads qui changent chacun
+    une cle ne s'ecrasent plus mutuellement."""
+    with _config_lock:
+        cfg = load_config()
+        cfg.update(values)
+        write_json(CONFIG_PATH, cfg)
+
+
+def write_json(path, data):
+    """Ecrit via un fichier temporaire puis os.replace (jamais a moitie)."""
+    tmp = path + ".tmp"
     try:
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, path)
     except OSError:
         pass
+
+
+def unique_path(path):
+    """`path` s'il est libre, sinon `nom (2).ext`, `nom (3).ext`..."""
+    if not os.path.exists(path):
+        return path
+    base, ext = os.path.splitext(path)
+    n = 2
+    while os.path.exists(f"{base} ({n}){ext}"):
+        n += 1
+    return f"{base} ({n}){ext}"
 
 
 # ---------------------------------------------------------------- helpers

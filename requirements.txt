@@ -1,4 +1,5 @@
 pywebview>=6.0
 yt-dlp>=2025.1.1
 Pillow>=10.0
-rembg[cpu]>=2.0
+onnxruntime>=1.17
+numpy>=1.26

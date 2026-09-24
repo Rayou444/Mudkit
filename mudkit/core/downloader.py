@@ -158,10 +158,47 @@ def download(url, mode, quality, container, playlist, dest,
     opts["progress_hooks"] = [hook]
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+            # extraction puis telechargement en deux temps (comme le fait
+            # extract_info) pour choisir un nom libre entre les deux
+            info = ydl.extract_info(url, download=False, process=False)
+            if info.get("_type", "video") == "video":
+                _avoid_name_clash(ydl, info, dest)
+            info = ydl.process_ie_result(info, download=True)
     except yt_dlp.utils.DownloadError as e:
         if looks_like_auth_error(e) and not has_cookies():
             raise RuntimeError(f"{str(e)[:150]}\n{COOKIES_HELP}") from e
         raise
-    title = (info or {}).get("title") or "?"
-    return {"title": title, "dest": dest}
+    info = info or {}
+    return {"title": info.get("title") or "?", "dest": dest,
+            "files": _output_files(info), "thumb": info.get("thumbnail")}
+
+
+def _avoid_name_clash(ydl, info, dest):
+    """Deux videos au meme titre : yt-dlp croirait la 2e deja telechargee
+    et ne ferait rien. Si le nom est pris (quelle que soit l'extension),
+    on bascule sur « titre (2) », « titre (3) »..."""
+    base = os.path.basename(ydl.prepare_filename(
+        info, outtmpl=os.path.join(dest, "%(title)s")))
+    try:
+        taken = {os.path.splitext(n)[0].lower() for n in os.listdir(dest)}
+    except OSError:
+        return
+    if base.lower() not in taken:
+        return
+    n = 2
+    while f"{base} ({n})".lower() in taken:
+        n += 1
+    ydl.params["outtmpl"]["default"] = os.path.join(
+        dest, f"%(title)s ({n}).%(ext)s")
+
+
+def _output_files(info):
+    """Chemins finaux (apres fusion / extraction audio) des fichiers crees."""
+    entries = info.get("entries") if info.get("_type") == "playlist" else None
+    out = []
+    for it in (entries or [info]):
+        for d in (it or {}).get("requested_downloads") or []:
+            p = d.get("filepath")
+            if p and p not in out:
+                out.append(p)
+    return out

@@ -148,11 +148,28 @@ $("#upd").addEventListener("click", function (e) {
     "sys.argv = ['pip', 'install', '-q', '-U', 'yt-dlp']; " +
     "from pip._internal.cli.main import main; sys.exit(main())";
   var p = spawn(PY, ["-E", "-s", "-c", code], { windowsHide: true });
+  var err = "";
+  p.stderr.on("data", function (c) { err = (err + c.toString("utf8")).slice(-4000); });
+  p.on("error", function () { status(ENGINE_MISSING, "err"); });
   p.on("exit", function (c) {
-    status(c === 0 ? "yt-dlp à jour OK" : "Échec de la mise à jour de yt-dlp",
+    if (c === null) return;  // deja signale par "error"
+    status(c === 0 ? "yt-dlp à jour OK"
+                   : "Échec de la mise à jour de yt-dlp" +
+                     (lastLine(err) ? " : " + lastLine(err) : ""),
            c === 0 ? "ok" : "err");
   });
 });
+
+/* Le moteur (Python de Mudkit) manque : spawn emet "error" (ENOENT). */
+var ENGINE_MISSING = "Moteur Mudkit introuvable dans " + MUDKIT +
+  " : installe ou répare Mudkit (INSTALLER Mudkit.bat).";
+
+/* Derniere ligne utile de stderr (ex. « ModuleNotFoundError: ... »). */
+function lastLine(txt) {
+  var lines = (txt || "").split(/\r?\n/).map(function (l) { return l.trim(); })
+    .filter(function (l) { return l; });
+  return lines.length ? lines[lines.length - 1].slice(0, 240) : "";
+}
 
 $("#url").addEventListener("keydown", function (e) {
   if (e.key === "Enter") $("#go").click();
@@ -191,7 +208,16 @@ $("#go").addEventListener("click", function () {
     return status("Impossible de lancer Mudkit : " + e.message, "err");
   }
 
-  var buf = "";
+  var buf = "", errBuf = "";
+  // lu en continu : un tampon stderr plein bloquerait Python
+  proc.stderr.on("data", function (chunk) {
+    errBuf = (errBuf + chunk.toString("utf8")).slice(-4000);
+  });
+  proc.on("error", function () {
+    proc = null;
+    running(false);
+    status(ENGINE_MISSING, "err");
+  });
   proc.stdout.on("data", function (chunk) {
     buf += chunk.toString("utf8");
     var lines = buf.split("\n");
@@ -208,8 +234,11 @@ $("#go").addEventListener("click", function () {
     proc = null;
     if (code !== 0 && !$("#status").classList.contains("err")) {
       running(false);
-      if ($("#status").textContent.indexOf("Annulé") !== 0)
-        status("Le téléchargement s'est arrêté (code " + code + ").", "err");
+      if ($("#status").textContent.indexOf("Annulé") !== 0) {
+        var why = lastLine(errBuf);  // plantage Python : la vraie cause
+        status("Le téléchargement s'est arrêté" +
+               (why ? " : " + why : " (code " + code + ")."), "err");
+      }
     }
   });
 });

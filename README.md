@@ -19,12 +19,35 @@ l'extrait, puis double-clic sur `INSTALLER Mudkit.bat` → installe dans
 cherchent `python\` (install) puis `.venv\` (ce PC de dev) : aucun chemin en
 dur.
 
-Nouvelle release (re-signe aussi le panneau) :
+### Faire une release
+
+1. Monter `__version__` dans `mudkit/__init__.py` (seule source de la
+   version), écrire `packaging/notes/vX.Y.Z.md`, commit + push.
+2. Si `requirements.txt` a changé : incrémenter `packaging/runtime.txt`.
+3. Construire et publier (re-signe aussi le panneau) :
 
 ```
-powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Version v2.9
-gh release create v2.9 packaging\dist\Mudkit-v2.9.zip
+powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -Publish
 ```
+
+Trois fichiers par release :
+- `Mudkit-vX.Y.Z.zip` : l'installation complète.
+- `Mudkit-update-vX.Y.Z.zip` : le code seul et le panneau, environ 1 Mo.
+- `Mudkit-Premiere-vX.Y.Z.zxp` : le panneau seul.
+
+Le Python embarqué est installé depuis `requirements.txt`, aux versions
+exactes du `.venv` (`pip freeze` sert de contraintes).
+
+### Mises à jour automatiques (`mudkit/updater.py`)
+
+- Au lancement, l'appli interroge `releases/latest` du dépôt public.
+- Le bouton « Mettre à jour » télécharge `Mudkit-update-*.zip` et vérifie
+  son empreinte SHA-256 fournie par GitHub. Il écrase ensuite le code et le
+  panneau Premiere, puis relance l'appli.
+- Ne sont jamais touchés : `python\`, `bin\`, `config.json`, `cookies.txt`.
+- Si `update.json` demande un runtime plus récent que
+  `python\mudkit-runtime.txt`, l'appli renvoie vers l'installateur complet.
+- Désactivé sur le PC de dev (dossier `.git`).
 
 ## Modules
 
@@ -34,6 +57,10 @@ gh release create v2.9 packaging\dist\Mudkit-v2.9.zip
 | ✨ Upscaler IA | Agrandit les images x2/x3/x4 en local sur ton GPU (Vulkan). 8 modèles dont les 5 du projet [Upscayl](https://github.com/upscayl/upscayl) (Standard, UltraSharp, Remacri, Art numérique, Lite). Comparateur avant/après, sortie png/jpg/webp. |
 | 🔁 Convertisseur | Images (png, jpg, webp, ico...), audio (mp3, flac, wav...) et vidéo (mp4, mkv, webm, gif...), en lot, avec progression réelle. |
 | 🗜 Compresseur | Fait tenir une vidéo sous une taille cible (10/25/50/100 Mo ou libre) — encodage x264 deux passes, définition réduite automatiquement si besoin. |
+| ✂ Détourage | Supprime l'arrière-plan (BiRefNet / IS-Net), PNG transparent. Même pipeline que rembg mais en onnxruntime direct (`core/cutout.py`, sortie identique au pixel près) : ~290 Mo de dépendances en moins. Modèles dans `~/.rembg/models`. |
+
+Le téléchargeur garde un **historique** (`%LOCALAPPDATA%\Mudkit\history.json`)
+et ne saute plus une vidéo dont le titre existe déjà : « titre (2) ».
 
 Le téléchargeur permet aussi de ne prendre qu'un **passage** d'une vidéo
 (slider début/fin après analyse) : seul le morceau choisi est téléchargé.
@@ -189,12 +216,33 @@ de travail**.
 ## Architecture
 
 - `main.py` — ouvre la fenêtre native (pywebview) sur l'interface web locale.
-- `mudkit/ui/` — interface (HTML/CSS/JS), thème océan/Gobou. `app.js` a un
-  mode simulation quand il est ouvert dans un navigateur sans pywebview.
+- `mudkit/ui/` — interface (HTML/CSS/JS), thème « Crème & Gobou » (crème
+  par défaut, sombre en option). Pour ouvrir `app.js` dans un navigateur
+  sans pywebview, il y a un mode simulation. Un aperçu se lance avec
+  `python -m http.server`, puis on ouvre `/mudkit/ui/index.html`.
+  - Grands titres et mot géant en contour : attribut `data-wm` des
+    `.page-head`.
+  - Pilule-image dans les titres d'accueil : `.hero-pill`.
+  - Les sélections utilisent la pilule « encre » (`--ink`).
+  - Tout ce qui avance utilise `--grad`, le dégradé bleu → orange.
+  - Polices système uniquement, donc rien à embarquer.
 - `mudkit/api.py` — pont JS ↔ Python : chaque méthode publique de `Api` est
   appelable côté JS via `window.pywebview.api.*` ; les tâches longues
   poussent des événements via `window.mudkitEvent({...})`.
-- `mudkit/core/` — logique pure (downloader, upscaler, converter), sans UI.
+  - Un plantage imprévu dans une tâche émet quand même son événement de fin
+    (`crash=`) : l'interface ne reste jamais bloquée.
+  - Côté JS, `api()` renvoie `null` sur échec au lieu de lever une exception.
+- `mudkit/core/` — logique pure (downloader, upscaler, converter,
+  compressor, cutout), sans UI.
+- `mudkit/logs.py` — journal `%LOCALAPPDATA%\Mudkit\logs\mudkit.log`.
+  - Sous pythonw, `stdout` et `stderr` valent `None` : ils sont redirigés
+    vers le journal. Sinon tqdm & co plantaient.
+  - Les erreurs JS remontent via `log_js`.
+  - `report()` fabrique le texte du bouton « Copier le rapport ».
+- `mudkit/history.py`, `mudkit/updater.py`, `mudkit/notify.py` —
+  historique des téléchargements, mises à jour auto, notification Windows
+  (NotifyIcon WinForms + clignotement, seulement si la fenêtre est en
+  arrière-plan).
 - `mudkit/dnsfix.py` — résolveur de secours DNS-over-HTTPS (le DNS de la box
   est instable) ; activé au démarrage, aucun réglage système modifié.
 
