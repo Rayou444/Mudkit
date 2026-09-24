@@ -129,8 +129,10 @@ foreach ($f in $zip, $updZip, $zxp) {
 # 7. release GitHub
 if ($Publish) {
   $notes = Join-Path $PSScriptRoot "notes\$tag.md"
-  $gh = @("release", "create", $tag, $zip, $updZip, $zxp, "--title", "Mudkit $tag", "--latest")
+  $gh = @("release", "create", $tag, $zip, $updZip, $zxp, "--title", "Mudkit $tag",
+          "--target", "master", "--latest")
   if (Test-Path $notes) { $gh += @("--notes-file", $notes) } else { $gh += "--generate-notes" }
-  gh @gh
+  Push-Location $repo  # gh deduit le depot GitHub du dossier courant
+  try { gh @gh } finally { Pop-Location }
   if ($LASTEXITCODE -ne 0) { throw "gh release create a echoue" }
 }
