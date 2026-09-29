@@ -60,7 +60,8 @@ exactes du `.venv` (`pip freeze` sert de contraintes).
 | ✂ Détourage | Supprime l'arrière-plan (BiRefNet / IS-Net), PNG transparent. Même pipeline que rembg mais en onnxruntime direct (`core/cutout.py`, sortie identique au pixel près) : ~290 Mo de dépendances en moins. Modèles dans `~/.rembg/models`. |
 
 Le téléchargeur garde un **historique** (`%LOCALAPPDATA%\Mudkit\history.json`)
-et ne saute plus une vidéo dont le titre existe déjà : « titre (2) ».
+et ne saute plus une vidéo dont le titre existe déjà : « titre (2) ». Une
+**playlist** est rangée dans son propre sous-dossier, au nom de la playlist.
 
 Le téléchargeur permet aussi de ne prendre qu'un **passage** d'une vidéo
 (slider début/fin après analyse) : seul le morceau choisi est téléchargé.

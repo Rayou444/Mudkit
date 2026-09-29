@@ -393,7 +393,7 @@ class Api:
                     "playlist": bool(opts.get("playlist"))})
                 entry["exists"] = bool(res["files"])
                 return {"type": "dl_done", "ok": True,
-                        "title": res["title"], "dest": dest,
+                        "title": res["title"], "dest": res["dest"],
                         "history": entry}
             except utils.CancelledError:
                 return {"type": "dl_done", "ok": False, "cancelled": True}

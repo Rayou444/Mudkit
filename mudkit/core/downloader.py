@@ -161,8 +161,11 @@ def download(url, mode, quality, container, playlist, dest,
             # extraction puis telechargement en deux temps (comme le fait
             # extract_info) pour choisir un nom libre entre les deux
             info = ydl.extract_info(url, download=False, process=False)
-            if info.get("_type", "video") == "video":
+            kind = info.get("_type", "video")
+            if kind == "video":
                 _avoid_name_clash(ydl, info, dest)
+            elif playlist and kind == "playlist":
+                dest = _playlist_folder(ydl, info, dest)
             info = ydl.process_ie_result(info, download=True)
     except yt_dlp.utils.DownloadError as e:
         if looks_like_auth_error(e) and not has_cookies():
@@ -190,6 +193,17 @@ def _avoid_name_clash(ydl, info, dest):
         n += 1
     ydl.params["outtmpl"]["default"] = os.path.join(
         dest, f"%(title)s ({n}).%(ext)s")
+
+
+def _playlist_folder(ydl, info, dest):
+    """Une playlist va dans son propre sous-dossier, au nom de la playlist.
+    Si le dossier existe deja (meme playlist relancee), on le reutilise :
+    les videos deja presentes sont sautees par yt-dlp."""
+    folder = ydl.prepare_filename(
+        info, outtmpl=os.path.join(dest, "%(title,id)s"))
+    ydl.params["outtmpl"]["default"] = os.path.join(
+        folder, "%(title)s.%(ext)s")
+    return folder
 
 
 def _output_files(info):
