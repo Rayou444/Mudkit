@@ -567,7 +567,11 @@ function onDlEvent(e) {
       if (e.ok) { b.ok++; b.title = e.title || b.title; }
       else if (!e.cancelled) b.err++;
     }
-    if (e.ok) toast("Téléchargement terminé", "ok");
+    if (e.ok && e.failed)
+      toast(`Playlist terminée : ${e.total - e.failed}/${e.total}. `
+        + `${e.failed} vidéo(s) supprimée(s) ou bloquée(s) sur le site, sautée(s).`,
+        "info", 9000);
+    else if (e.ok) toast("Téléchargement terminé", "ok");
     else if (e.cancelled) toast("Téléchargement annulé.");
     else toast("Erreur : " + e.error, "err", 8000);
     if (e.history) {

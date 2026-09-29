@@ -92,6 +92,8 @@ def build_options(mode, quality, container, playlist, dest, section=None):
         "no_warnings": True,
         "concurrent_fragment_downloads": 4,
     }
+    if playlist:  # une video supprimee / bloquee ne stoppe pas la playlist
+        opts["ignoreerrors"] = True
     if utils.has_ffmpeg():
         opts["ffmpeg_location"] = utils.BIN_DIR
         utils.ensure_ffmpeg_on_path()
@@ -130,8 +132,8 @@ def download(url, mode, quality, container, playlist, dest,
     last_emit = [0.0]
 
     def hook(d):
-        if is_cancelled():
-            raise Cancelled()
+        if is_cancelled():  # le seul type que yt-dlp ne rattrape jamais
+            raise yt_dlp.utils.DownloadCancelled()
         now = time.monotonic()
         if d["status"] == "downloading":
             if now - last_emit[0] < 0.15:
@@ -167,13 +169,26 @@ def download(url, mode, quality, container, playlist, dest,
             elif playlist and kind == "playlist":
                 dest = _playlist_folder(ydl, info, dest)
             info = ydl.process_ie_result(info, download=True)
+    except yt_dlp.utils.DownloadCancelled:
+        raise Cancelled() from None
     except yt_dlp.utils.DownloadError as e:
         if looks_like_auth_error(e) and not has_cookies():
             raise RuntimeError(f"{str(e)[:150]}\n{COOKIES_HELP}") from e
         raise
     info = info or {}
+    files = _output_files(info)
+    total = failed = 0
+    if info.get("_type") == "playlist":
+        entries = info.get("entries") or []
+        total = len(entries)
+        failed = sum(1 for e in entries
+                     if not (e or {}).get("requested_downloads"))
+        if total and failed == total:
+            raise RuntimeError("Aucune vidéo de la playlist n'a pu être "
+                               "téléchargée (supprimées ou bloquées).")
     return {"title": info.get("title") or "?", "dest": dest,
-            "files": _output_files(info), "thumb": info.get("thumbnail")}
+            "files": files, "thumb": info.get("thumbnail"),
+            "total": total, "failed": failed}
 
 
 def _avoid_name_clash(ydl, info, dest):

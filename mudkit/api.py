@@ -394,6 +394,7 @@ class Api:
                 entry["exists"] = bool(res["files"])
                 return {"type": "dl_done", "ok": True,
                         "title": res["title"], "dest": res["dest"],
+                        "total": res["total"], "failed": res["failed"],
                         "history": entry}
             except utils.CancelledError:
                 return {"type": "dl_done", "ok": False, "cancelled": True}
