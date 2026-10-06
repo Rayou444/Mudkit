@@ -505,6 +505,7 @@ function wireDownloader(st) {
     if (info.kind === "playlist") {
       badge.textContent = `Playlist · ${info.count} vidéos`;
       badge.className = "tag orange";
+      $("#dl-playlist-label").textContent = "Toute la playlist";
       $("#dl-playlist-row").classList.remove("hidden");
       $("#dl-playlist").checked = true;
       $("#dl-section").classList.add("hidden");
@@ -512,7 +513,11 @@ function wireDownloader(st) {
     } else {
       badge.textContent = info.duration || "vidéo";
       badge.className = "tag";
-      $("#dl-playlist-row").classList.add("hidden");
+      // video tiree d'une playlist : cette video seule par defaut, la liste
+      // entiere sur demande (jamais pour un Mix YouTube, sans fin)
+      const inList = info.list && !info.list.mix;
+      $("#dl-playlist-label").textContent = "Toute la playlist dont vient cette vidéo";
+      $("#dl-playlist-row").classList.toggle("hidden", !inList);
       $("#dl-playlist").checked = false;
       if (info.duration_s > 1) {
         secReset(info.duration_s, info);

@@ -135,10 +135,34 @@ def thumb_data_uri(url):
         return None
 
 
+def video_in_list(url):
+    """Lien YouTube « une video + sa playlist » (copie pendant un Mix ou une
+    playlist) : identifiant de la liste, sinon None."""
+    from urllib.parse import parse_qs, urlparse
+    try:
+        u = urlparse(url)
+    except ValueError:
+        return None
+    host = (u.hostname or "").lower()
+    if not (host == "youtu.be" or host.endswith("youtube.com")):
+        return None
+    q = parse_qs(u.query)
+    lst = (q.get("list") or [""])[0]
+    video = bool(q.get("v")) or host == "youtu.be" or u.path.startswith("/shorts/")
+    return lst if lst and video else None
+
+
 def analyze(url, single=False):
     """Retourne les infos d'une video ou d'une playlist (sans telecharger).
-    single : un lien « video + playlist » (Mix YouTube) = la video seule."""
+    single : un lien « video + playlist » (Mix YouTube) = la video seule.
+
+    Un lien « video + playlist » est toujours analyse comme la video seule :
+    avant, l'analyse parcourait toute la liste (un Mix YouTube : jusqu'a 500
+    videos, ~20 s) alors qu'on veut presque toujours juste cette video. La
+    case « Toute la playlist » reste proposee (sauf pour un Mix, sans fin)."""
     import yt_dlp
+    in_list = None if single else video_in_list(url)
+    single = single or bool(in_list)
     opts = {"quiet": True, "no_warnings": True, "noplaylist": single,
             "extract_flat": "in_playlist", "playlist_items": "1:500",
             # memes cookies que le telechargement : sinon une video +18 ou
@@ -173,7 +197,10 @@ def analyze(url, single=False):
             "duration": _fmt_duration(info.get("duration")),
             "duration_s": info.get("duration") or 0,
             "thumb": thumb_data_uri(info.get("thumbnail")),
-            "preview": preview_streams(info)}
+            "preview": preview_streams(info),
+            # Mix YouTube (liste "RD...") : genere sans fin, pas de case
+            "list": ({"id": in_list, "mix": in_list.startswith("RD")}
+                     if in_list else None)}
 
 
 # ------------------------------------------------- apercu avant passage
