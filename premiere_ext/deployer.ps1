@@ -8,6 +8,9 @@ $cert = Join-Path $root "mudkit-cert.p12"
 $pass = "mudkit-local"
 $dest = "$env:APPDATA\Adobe\CEP\extensions\com.mudkit.premiere"
 
+# le lecteur video est partage avec l'appli : sa source est mudkit\ui\player.js
+Copy-Item (Join-Path $root "..\mudkit\ui\player.js") (Join-Path $src "player.js") -Force
+
 if (-not (Test-Path $cert)) {
   & (Join-Path $root "ZXPSignCmd.exe") -selfSignedCert FR IDF Mudkit Rayan $pass $cert
   Write-Output "certificat auto-signe cree"

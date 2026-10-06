@@ -25,17 +25,6 @@ var proc = null;
 
 function $(s) { return document.querySelector(s); }
 
-function parseTime(txt) {
-  // accepte "90", "1:30", "1:02:30"
-  txt = (txt || "").trim();
-  if (!txt) return null;
-  var parts = txt.split(":").map(Number);
-  if (parts.some(isNaN)) return null;
-  var s = 0;
-  for (var i = 0; i < parts.length; i++) s = s * 60 + parts[i];
-  return s;
-}
-
 /* ------- theme : suit la couleur du theme Apparence de Premiere ------- */
 
 /* Derive TOUTE la palette de la couleur de fond que Premiere nous donne.
@@ -192,9 +181,96 @@ $("#subs").addEventListener("change", function (e) {
   try { localStorage.setItem("mudkit.dl.subs", e.target.checked ? "1" : "0"); } catch (er) {}
 });
 
-$("#cut").addEventListener("change", function (e) {
-  $("#cutrow").classList.toggle("hidden", !e.target.checked);
-});
+/* ------------- passage : apercu de la video + debut / fin -------------
+   Cocher « Passage seulement » analyse le lien (premiere_dl.py --info) et
+   ouvre un apercu (flux basse definition lu chez YouTube & co, son a part si
+   besoin) : on cherche le passage en ecoutant, on pose debut / fin sur la
+   barre, avec les boutons (touches I / O) ou en tapant les temps. Sans
+   apercu possible, les deux champs de temps restent la. */
+var cut = { player: null, url: "", proc: null, info: null };
+
+function cutMsg(t) { $("#cutmsg").textContent = t || ""; }
+function cutStop() {
+  if (cut.proc) { killTree(cut.proc); cut.proc = null; }
+  if (cut.player) { cut.player.destroy(); cut.player = null; }
+  cut.url = ""; cut.info = null;
+}
+function cutManual(msg) {
+  $("#cutrow").classList.remove("hidden");
+  cutMsg(msg);
+}
+function cutShow() {
+  var on = $("#cut").checked;
+  $("#cutbox").classList.toggle("hidden", !on);
+  if (!on) { cutStop(); $("#cutrow").classList.add("hidden"); cutMsg(""); return; }
+  cutAnalyze();
+}
+function cutAnalyze() {
+  var url = $("#url").value.trim();
+  if (!$("#cut").checked) return;
+  if (!url) { cutStop(); return cutManual("Colle un lien : l'aperçu de la vidéo apparaîtra ici."); }
+  if (url === cut.url) return;
+  cutStop();
+  cut.url = url;
+  $("#cutrow").classList.add("hidden");
+  if (!nodeReq) return cutManual("");
+  cutMsg("Analyse du lien pour l'aperçu…");
+  var p;
+  try { p = nodeReq("child_process").spawn(PY, ["-E", "-s", "-X", "utf8", "-u", SCRIPT, "--info", url], { windowsHide: true }); }
+  catch (e) { return cutManual("Aperçu indisponible : tape le début et la fin."); }
+  cut.proc = p;
+  var out = "";
+  p.stdout.on("data", function (c) { out += c.toString("utf8"); });
+  p.stderr.on("data", function () {});
+  p.on("error", function () { if (cut.proc === p) { cut.proc = null; cutManual(ENGINE_MISSING); } });
+  p.on("close", function () {
+    if (cut.proc !== p) return;          // lien change ou fenetre fermee entre-temps
+    cut.proc = null;
+    var msg = null;
+    out.split(/\r?\n/).forEach(function (l) { try { var j = JSON.parse(l); if (j.info || j.error) msg = j; } catch (e) {} });
+    if (!msg || msg.error)
+      return cutManual("Analyse impossible" + (msg && msg.error ? " : " + msg.error : "") + ". Tape le début et la fin.");
+    var info = msg.info;
+    if (info.kind !== "video")
+      return cutManual("Lien de playlist : seule la 1re vidéo sera prise. Tape le début et la fin.");
+    if (!(info.duration_s > 0)) return cutManual("Durée inconnue (direct ?) : tape le début et la fin.");
+    cut.info = info;
+    cutPlayerFor(info);
+  });
+}
+function cutPlayerFor(info) {
+  var pv = info.preview || {}, sb = pv.storyboard, vol = 0.7;
+  try { vol = (+(localStorage.getItem("mudkit.lib.vol") || 70)) / 100; } catch (e) {}
+  cut.player = new MkPlayer($("#cutplayer"), {
+    src: pv.video || null, audioSrc: pv.audio || null, poster: info.thumb,
+    duration: info.duration_s, fps: pv.fps, range: "always", fixed: true, compact: true, loop: false,
+    volume: vol,
+    thumbs: sb ? function (t, d) { return MkPlayer.storyboard(sb, t, d || info.duration_s); } : null,
+    onRange: function () { cutMsg(cutLabel()); },
+    onError: function (err, pl) {
+      pl.msg("Aperçu indisponible pour cette vidéo.<br>Règle le début et la fin sur la barre ou tape les temps.");
+      return true;
+    }
+  });
+  if (!pv.video) cut.player.msg("Pas d'aperçu pour ce site.<br>Règle le début et la fin sur la barre ou tape les temps.");
+  cutMsg(cutLabel());
+}
+function cutLabel() {
+  var r = cut.player && cut.player.getRange();
+  if (!r) return "";
+  if (r.full) return "Toute la vidéo pour l'instant : pose le début et la fin (I / O), P écoute le passage.";
+  return "Passage de " + MkPlayer.fmt(r.b - r.a) + " retenu.";
+}
+/* fenetre fermee : l'apercu se tait */
+if (window.MutationObserver) {
+  new MutationObserver(function () {
+    if (!$("#dloverlay").classList.contains("on") && cut.player) cut.player.pause();
+  }).observe($("#dloverlay"), { attributes: true, attributeFilter: ["class"] });
+}
+
+$("#cut").addEventListener("change", cutShow);
+$("#url").addEventListener("change", cutAnalyze);
+$("#url").addEventListener("paste", function () { setTimeout(cutAnalyze, 0); });
 
 /* Le moteur (Python de Mudkit) manque : spawn emet "error" (ENOENT). */
 var ENGINE_MISSING = "Moteur Mudkit introuvable dans " + MUDKIT +
@@ -217,7 +293,10 @@ function killTree(p) {
 }
 
 $("#url").addEventListener("keydown", function (e) {
-  if (e.key === "Enter") $("#go").click();
+  if (e.key !== "Enter") return;
+  // passage coche et nouveau lien : Entree lance d'abord l'apercu
+  if ($("#cut").checked && $("#url").value.trim() !== cut.url) return cutAnalyze();
+  $("#go").click();
 });
 
 $("#cancel").addEventListener("click", function () {
@@ -238,12 +317,19 @@ $("#go").addEventListener("click", function () {
   // -E -s : ignore un eventuel Python perso (PYTHONPATH, site utilisateur)
   var args = ["-E", "-s", "-X", "utf8", "-u", SCRIPT, url, mode];
   if ($("#cut").checked) {
-    var tin = parseTime($("#t-in").value) || 0;
-    var tout = parseTime($("#t-out").value);
-    if (tout == null || tout <= tin)
-      return status("Passage invalide : mets une fin après le début " +
-                    "(ex. 0:30 → 1:45).", "err");
-    args.push(String(tin), String(tout));
+    var r = cut.player && cut.url === url ? cut.player.getRange() : null;
+    if (r) {
+      // passage regle sur l'apercu (toute la video : rien a couper)
+      if (!r.full) args.push(r.a.toFixed(3), r.b.toFixed(3));
+    } else {
+      var tin = MkPlayer.parse($("#t-in").value) || 0;
+      var tout = MkPlayer.parse($("#t-out").value);
+      if (tout == null || tout <= tin)
+        return status("Passage invalide : mets une fin après le début " +
+                      "(ex. 0:30 → 1:45).", "err");
+      args.push(String(tin), String(tout));
+    }
+    if (cut.player) cut.player.pause();
   }
   if ($("#subs").checked && mode !== "mp3") args.push("--subs");
 

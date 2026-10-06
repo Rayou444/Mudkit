@@ -54,29 +54,34 @@ def is_cookie_read_error(e):
 
 
 def with_cookie_fallback(opts, fn):
-    """fn(opts), et si les cookies du navigateur sont illisibles (navigateur
-    ouvert qui verrouille sa base, chiffrement de Chrome / Edge / Brave), on
-    reessaie SANS eux : une video publique n'en a pas besoin. Avant, un
-    navigateur ouvert faisait echouer TOUS les telechargements. Si le lien
-    demandait bien d'etre connecte, c'est l'erreur des cookies qui remonte
-    (friendly_error en fait un message clair)."""
+    """fn(opts) avec les cookies du navigateur SEULEMENT si le lien les
+    demande. On essaie d'abord sans (cookies.txt garde, il ne coute rien) :
+    lire les cookies de Chrome / Edge / Brave prend du temps et echoue
+    souvent (navigateur ouvert, chiffrement depuis 2024), et une video
+    publique n'en a pas besoin. Avant, chaque analyse et chaque
+    telechargement commencaient par cette lecture, souvent ratee.
+    Si le lien demande d'etre connecte, on recommence avec les cookies ; si
+    ceux-ci sont illisibles, c'est cette erreur qui remonte (friendly_error
+    en fait un message clair)."""
     import yt_dlp
-    try:
+    if "cookiesfrombrowser" not in opts:
         return fn(opts)
-    except yt_dlp.utils.DownloadError as e:
-        if not ("cookiesfrombrowser" in opts and is_cookie_read_error(e)):
-            raise
-        first = e
     plain = dict(opts)
     plain.pop("cookiesfrombrowser", None)
     if os.path.isfile(COOKIES_FILE):
         plain["cookiefile"] = COOKIES_FILE
     try:
         return fn(plain)
+    except yt_dlp.utils.DownloadError as e:
+        if not looks_like_auth_error(e):
+            raise
+        first = e
+    try:
+        return fn(opts)
     except yt_dlp.utils.DownloadError as e2:
-        if looks_like_auth_error(e2):
-            raise first from e2
-        raise
+        if is_cookie_read_error(e2):
+            raise
+        raise e2 from first
 
 
 def looks_like_auth_error(msg):
@@ -130,10 +135,11 @@ def thumb_data_uri(url):
         return None
 
 
-def analyze(url):
-    """Retourne les infos d'une video ou d'une playlist (sans telecharger)."""
+def analyze(url, single=False):
+    """Retourne les infos d'une video ou d'une playlist (sans telecharger).
+    single : un lien « video + playlist » (Mix YouTube) = la video seule."""
     import yt_dlp
-    opts = {"quiet": True, "no_warnings": True,
+    opts = {"quiet": True, "no_warnings": True, "noplaylist": single,
             "extract_flat": "in_playlist", "playlist_items": "1:500",
             # memes cookies que le telechargement : sinon une video +18 ou
             # reservee aux membres echouait des l'analyse
@@ -166,7 +172,81 @@ def analyze(url):
             "channel": info.get("uploader") or info.get("channel") or "",
             "duration": _fmt_duration(info.get("duration")),
             "duration_s": info.get("duration") or 0,
-            "thumb": thumb_data_uri(info.get("thumbnail"))}
+            "thumb": thumb_data_uri(info.get("thumbnail")),
+            "preview": preview_streams(info)}
+
+
+# ------------------------------------------------- apercu avant passage
+
+_DIRECT = ("https", "http")
+
+
+def _direct(f):
+    """Format lisible tel quel par un lecteur web : un seul fichier en
+    http(s) (pas de m3u8 / DASH en morceaux), sans DRM, ni cookies requis."""
+    return (f.get("protocol") in _DIRECT and f.get("url")
+            and not f.get("has_drm") and f.get("ext") in ("mp4", "webm", "m4a")
+            and "Cookie" not in (f.get("http_headers") or {})
+            and f.get("format_note") != "storyboard")
+
+
+def _has(f, kind):
+    c = f.get(kind)
+    return bool(c) and c != "none"
+
+
+def _vscore(f):
+    """Petite image d'abord (360-480p : apercu fluide, charge vite), H.264
+    de preference (lu partout), VP9 ensuite."""
+    h = f.get("height") or 0
+    codec = (f.get("vcodec") or "").lower()
+    pref = 0 if codec.startswith(("avc", "h264")) else (
+        1 if codec.startswith(("vp9", "vp09", "vp8")) else 3)
+    size = abs(h - 400) if h else 300
+    return (pref, size)
+
+
+def preview_streams(info):
+    """Flux pour l'apercu du passage : image (basse definition) + son si
+    l'image est muette (YouTube separe les deux), et planche de vignettes
+    pour la barre de temps. None si le site n'offre rien de lisible
+    directement : on peut alors toujours taper les temps."""
+    fmts = [f for f in (info.get("formats") or []) if isinstance(f, dict)]
+    out = {"fps": info.get("fps") or None, "storyboard": _storyboard(fmts)}
+    both = [f for f in fmts if _direct(f) and _has(f, "vcodec") and _has(f, "acodec")]
+    if both:
+        out["video"] = min(both, key=_vscore)["url"]
+        out["audio"] = None
+        return out
+    vid = [f for f in fmts if _direct(f) and _has(f, "vcodec") and not _has(f, "acodec")
+           and (f.get("height") or 0) <= 1080]
+    aud = [f for f in fmts if _direct(f) and _has(f, "acodec") and not _has(f, "vcodec")]
+    if not vid:
+        return out if out["storyboard"] else None
+    out["video"] = min(vid, key=_vscore)["url"]
+    if aud:
+        # AAC (m4a) d'abord, lu partout ; puis le debit le plus bas suffisant
+        def ascore(f):
+            codec = (f.get("acodec") or "").lower()
+            return (0 if codec.startswith("mp4a") else 1, abs((f.get("abr") or 128) - 128))
+        out["audio"] = min(aud, key=ascore)["url"]
+    else:
+        out["audio"] = None
+    return out
+
+
+def _storyboard(fmts):
+    """Planche de vignettes YouTube (format "sb") la plus proche de 160 px de
+    large : images de la video regulierement espacees, en mosaique."""
+    sbs = [f for f in fmts if f.get("format_note") == "storyboard"
+           and f.get("fragments") and f.get("rows") and f.get("columns")
+           and f.get("width") and f.get("fps")]
+    if not sbs:
+        return None
+    f = min(sbs, key=lambda f: abs((f.get("width") or 0) - 160))
+    return {"sheets": [fr["url"] for fr in f["fragments"] if fr.get("url")],
+            "w": f["width"], "h": f["height"], "rows": f["rows"],
+            "cols": f["columns"], "fps": f["fps"]}
 
 
 TITLE = "%(title).150B"

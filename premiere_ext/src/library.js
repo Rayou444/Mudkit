@@ -1218,7 +1218,7 @@ function setRepeat(m) {
 function applyVol() {
   var v = (+$("#vol").value) / 100;
   audio.volume = v; audio.muted = muted;
-  var vid = $("#vbody").querySelector("video"); if (vid) { vid.volume = v; vid.muted = muted; }
+  if (vplayer) vplayer.setVolume(v, muted, true);
   var b = $("#pmute");
   b.innerHTML = (muted || v === 0) ? ICO.mute : ICO.speaker;
   b.title = muted ? "Remettre le son" : "Couper le son";
@@ -1292,8 +1292,11 @@ function playAudio(el, it, frac) {
 var viewerItem = null;
 
 function openViewer(it) {
+  if (proxyProc) { try { proxyProc.kill(); } catch (e) {} proxyProc = null; }
+  if (vplayer) { vplayer.destroy(); vplayer = null; }
+  $("#vinfo").textContent = "";
   viewerItem = it;
-  var body = $("#vbody"); body.innerHTML = "";
+  var body = $("#vbody"); body.innerHTML = ""; body.classList.remove("hasplayer");
   $("#vname").textContent = it.p;
   $("#viewer").classList.add("on");
   if (it.k === "image") {
@@ -1310,26 +1313,137 @@ function openViewer(it) {
     }
     return;
   }
-  if (it.k === "video") {
-    if (WEB_VIDEO[it.e]) {
-      var v = document.createElement("video");
-      v.src = fileUrl(it.p); v.controls = true; v.autoplay = true; v.loop = true;
-      v.volume = (+$("#vol").value) / 100; v.muted = muted;
-      // le volume regle dans les controles de la video devient le volume general
-      v.addEventListener("volumechange", function () {
-        $("#vol").value = Math.round(v.volume * 100); muted = v.muted;
-        audio.volume = v.volume; audio.muted = muted;
-        lsSet("mudkit.lib.vol", $("#vol").value);
-        var b = $("#pmute"); b.innerHTML = (muted || !v.volume) ? ICO.mute : ICO.speaker;
-      });
-      v.onerror = function () { body.innerHTML = '<div class="vmsg">Codec non lisible par Chromium.<br>Survole la vignette pour scruber, ou glisse-le sur la timeline.</div>'; };
-      body.appendChild(v);
-    } else body.innerHTML = '<div class="vmsg">Format conteneur non lisible ici (' + it.e + ').<br>Survole la vignette pour scruber les images.</div>';
-  }
+  if (it.k === "video") openVideo(it, body);
 }
+
+/* ------------------------- visionneuse video --------------------------
+   Lecteur MkPlayer (player.js, partage avec l'appli) : barre de temps avec
+   images au survol (sprite de la vignette), image par image, J / K / L,
+   vitesse, passage In / Out pose directement sur la barre (memes points que
+   les touches I / O), temps tapables. Un codec que Chromium ne lit pas
+   (ProRes, DNxHD, HEVC, AVI, MXF...) est converti une fois en apercu leger
+   (540p H.264) garde en cache : plus de \u00AB Codec non lisible \u00BB. */
+var vplayer = null, proxyProc = null;
+
+function openVideo(it, body) {
+  var m = metaOf(it);
+  var mk = marks[it.p];
+  body.classList.add("hasplayer");
+  vplayer = new MkPlayer(body, {
+    duration: m.dur || 0, range: true, autoplay: true, loop: true, compact: true,
+    a: mk ? mk.a : null, b: mk ? mk.b : null,
+    volume: (+$("#vol").value) / 100, muted: muted,
+    thumbs: function (t, d) { return spriteAt(it, t, d); },
+    onRange: function (a, b, pl) {
+      if (a == null) delete marks[it.p];
+      else { delete marks[it.p]; marks[it.p] = { a: a, b: b, d: pl.dur }; }
+      saveMarks(); showMarks(it);
+    },
+    onVolume: function (v, mu) {
+      $("#vol").value = Math.round(v * 100); muted = mu;
+      lsSet("mudkit.lib.vol", $("#vol").value);
+      audio.volume = v; audio.muted = mu;
+      var bt = $("#pmute"); bt.innerHTML = (mu || !v) ? ICO.mute : ICO.speaker;
+    },
+    onError: function () { proxyFor(it); return true; }
+  });
+  vplayer.el.style.flex = "1 1 auto";
+  videoInfo(it);
+  ensureSprite(it);
+  if (WEB_VIDEO[it.e]) vplayer.load(fileUrl(it.p));
+  else proxyFor(it);
+}
+
+/* Infos sous la video (definition, cadence, codec) + cadence pour l'image
+   par image et le timecode. */
+function videoInfo(it) {
+  run(FFPROBE, ["-v","error","-select_streams","v:0","-show_entries",
+                "stream=width,height,r_frame_rate,codec_name:format=duration","-of","json", it.p],
+    function (err, out) {
+      if (viewerItem !== it || !vplayer || err) return;
+      var j; try { j = JSON.parse(out); } catch (e) { return; }
+      var st = (j.streams || [])[0] || {}, fr = String(st.r_frame_rate || "").split("/");
+      var fps = fr.length === 2 && +fr[1] ? +fr[0] / +fr[1] : 0;
+      if (fps > 0 && fps < 240) vplayer.fps = fps;
+      var bits = [];
+      if (st.width) bits.push(st.width + "x" + st.height);
+      if (fps) bits.push((Math.round(fps * 100) / 100) + " i/s");
+      if (st.codec_name) bits.push(String(st.codec_name).toUpperCase());
+      $("#vinfo").textContent = bits.join("  \u00B7  ");
+      vplayer.paint(); vplayer.paintRange();
+    }, { first:true });
+}
+
+/* Image du sprite de survol (24 images de 160x90 cote a cote) a l'instant t */
+function spriteAt(it, t, d) {
+  var sp = it._sprite;
+  if (!sp || !d) return null;
+  var i = Math.max(0, Math.min(SPRITE_N - 1, Math.floor(t / d * SPRITE_N)));
+  return { url: fileUrl(sp), w: 160, h: 90, x: i * 160, y: 0, sw: 160 * SPRITE_N, sh: 90 };
+}
+function ensureSprite(it) {
+  if (!CACHE || !nodeReq) return;
+  var sp = cachePath("sp", keyOf(it), ".jpg");
+  if (fs.existsSync(sp)) { it._sprite = sp; return; }
+  probeInfo(it, function (m) {
+    if (!m.vid || !m.dur || m.dur < 0.5) return;
+    var part = partOf(sp);
+    run(FFMPEG, spriteArgs(it.p, m.dur, part), function (err) {
+      if (settle(err, part, sp)) it._sprite = sp;
+    }, { first:true });
+  });
+}
+
+/* Apercu leger pour un codec illisible par Chromium : 540p H.264 + AAC,
+   converti une fois puis garde en cache (sous-dossier px, purge comme le
+   reste). Fichier .part tant que ce n'est pas fini. */
+function proxyFor(it) {
+  if (!vplayer) return;
+  var px = cachePath("px", keyOf(it), ".mp4");
+  if (fs.existsSync(px)) { if (vplayer.v.src.indexOf("/px/") < 0) vplayer.swap(fileUrl(px)); return; }
+  if (proxyProc) return;
+  var part = partOf(px), pl = vplayer;
+  pl.msg("Pr\u00E9paration de l'aper\u00E7u (" + it.e.toUpperCase() + ")...");
+  probeInfo(it, function (m) {
+    if (vplayer !== pl) return;
+    var dur = m.dur || 0;
+    var args = ["-v","error","-y","-i",it.p,"-map","0:v:0","-map","0:a:0?",
+                "-vf","scale=-2:'min(540,ih)':flags=bilinear,format=yuv420p",
+                "-c:v","libx264","-preset","veryfast","-crf","26","-g","25",
+                "-c:a","aac","-b:a","128k","-ac","2","-movflags","+faststart",
+                "-progress","pipe:1","-nostats", part];
+    var p;
+    try { p = spawn(FFMPEG, args, { windowsHide:true }); }
+    catch (e) { return pl.msg("Aper\u00E7u impossible pour ce fichier.<br>Il reste importable."); }
+    proxyProc = p;
+    var buf = "", err = "";
+    p.stdout.on("data", function (c) {
+      buf += c.toString();
+      var mm = buf.match(/out_time_us=(\d+)/g);
+      if (mm && dur > 0 && vplayer === pl) {
+        var us = +mm[mm.length - 1].split("=")[1];
+        pl.msg("Pr\u00E9paration de l'aper\u00E7u (" + it.e.toUpperCase() + ")... " +
+               Math.min(99, Math.round(us / 1e6 / dur * 100)) + " %");
+      }
+      if (buf.length > 4000) buf = buf.slice(-400);
+    });
+    p.stderr.on("data", function (c) { err = (err + c.toString()).slice(-600); });
+    p.on("error", function () { proxyProc = null; });
+    p.on("close", function (code) {
+      proxyProc = null;
+      var ok = settle(code === 0 ? null : (err || "code " + code), part, px);
+      if (vplayer !== pl) return;
+      if (ok) { pl.msg(""); pl.swap(fileUrl(px)); countLine(); }
+      else pl.msg("Aper\u00E7u impossible pour ce fichier (" + it.e + ").<br>Il reste importable : double-clic ou +.");
+    });
+  });
+}
+
 function closeViewer() {
-  var v = $("#vbody").querySelector("video"); if (v) { try { v.pause(); } catch (e) {} }
-  $("#vbody").innerHTML = ""; $("#viewer").classList.remove("on"); viewerItem = null;
+  if (proxyProc) { try { proxyProc.kill(); } catch (e) {} proxyProc = null; }
+  if (vplayer) { vplayer.destroy(); vplayer = null; }
+  $("#vbody").innerHTML = ""; $("#vinfo").textContent = "";
+  $("#viewer").classList.remove("on"); viewerItem = null;
 }
 function selectTile(el) {
   var p = el._it.p;            // retrouve la selection quand la tuile est recreee
@@ -1417,10 +1531,10 @@ function markArgs(it) {
   return m && m.b > m.a ? m.a.toFixed(3) + "," + m.b.toFixed(3) : "null,null";
 }
 function setMark(which) {
-  var vid = $("#viewer").classList.contains("on") && $("#vbody").querySelector("video");
+  // visionneuse video : le lecteur pose le point lui-meme (et le montre sur sa barre)
+  if (vplayer && viewerItem && $("#viewer").classList.contains("on")) return vplayer.mark(which === "in" ? "a" : "b");
   var it, t, dur;
-  if (vid && viewerItem) { it = viewerItem; t = vid.currentTime; dur = vid.duration; }
-  else if (cur) { it = cur; t = audio.currentTime; dur = audio.duration; }
+  if (cur) { it = cur; t = audio.currentTime; dur = audio.duration; }
   else return say("Lance d'abord l'ecoute d'un son (ou ouvre une video) pour placer un point d'entree / sortie.", "err");
   var full = isFinite(dur) ? dur : t;
   var m = marks[it.p] || { a: 0, b: full };
@@ -1634,7 +1748,7 @@ function purgeCache() {
     });
   });
 
-  var files = [], subs = ["th", "wf", "sp", "pv", "big"], dirsLeft = subs.length;
+  var files = [], subs = ["th", "wf", "sp", "pv", "big", "px"], dirsLeft = subs.length;
   subs.forEach(function (sub) {
     var d = CACHE + "\\" + sub;
     fs.readdir(d, function (err, names) {
@@ -1833,6 +1947,8 @@ document.addEventListener("keydown", function (e) {
   var t = e.target, tag = t && t.tagName;
   if (tag === "TEXTAREA" || (tag === "INPUT" && t.type === "text")) return;
   if ($("#dloverlay").classList.contains("on")) return;
+  // visionneuse video ouverte : ses raccourcis d'abord (Espace, J K L, fleches, I O P X...)
+  if (vplayer && $("#viewer").classList.contains("on") && vplayer.key(e)) return;
   // I / O : points d'entree / sortie, aussi dans la visionneuse video
   if (!e.ctrlKey && !e.altKey && !e.metaKey && /^[ioIO]$/.test(e.key)) {
     e.preventDefault();
@@ -1852,11 +1968,15 @@ document.addEventListener("keydown", function (e) {
 
 /* Sans ca, Premiere recoit aussi Espace et les fleches quand le panneau a le
    focus (lecture de la timeline en plus de celle du son). Codes touches
-   Windows : 32 Espace, 37 gauche, 39 droite. */
+   Windows : 32 Espace, 35/36 Fin/Debut, 37-40 fleches, plus les lettres du
+   lecteur video (I O J K L M P X), avec ou sans Maj. */
+var KEYS_WANTED = [{ keyCode:65, ctrlKey:true }];
+[32, 35, 36, 37, 38, 39, 40, 73, 74, 75, 76, 77, 79, 80, 88].forEach(function (k) {
+  KEYS_WANTED.push({ keyCode:k }, { keyCode:k, shiftKey:true });
+});
 try {
   if (window.__adobe_cep__ && window.__adobe_cep__.registerKeyEventsInterest)
-    window.__adobe_cep__.registerKeyEventsInterest(JSON.stringify([{ keyCode:32 }, { keyCode:37 }, { keyCode:39 },
-                                                                   { keyCode:73 }, { keyCode:79 }, { keyCode:65, ctrlKey:true }]));
+    window.__adobe_cep__.registerKeyEventsInterest(JSON.stringify(KEYS_WANTED));
 } catch (e) {}
 
 /* -------------------------------- demarrage ---------------------------- */

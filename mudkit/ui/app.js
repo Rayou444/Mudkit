@@ -222,6 +222,8 @@ function go(page) {
     b.classList.toggle("active", b.dataset.page === page));
   $$(".page").forEach((p) =>
     p.classList.toggle("active", p.id === `page-${page}`));
+  // l'apercu du passage ne continue pas a jouer derriere un autre outil
+  if (page !== "dl" && typeof secPlayer !== "undefined" && secPlayer) secPlayer.pause();
 }
 $$("[data-page]").forEach((b) =>
   b.addEventListener("click", () => {
@@ -505,18 +507,18 @@ function wireDownloader(st) {
       $("#dl-playlist-row").classList.remove("hidden");
       $("#dl-playlist").checked = true;
       $("#dl-section").classList.add("hidden");
-      S.dl.sec.dur = 0;
+      secReset(0);
     } else {
       badge.textContent = info.duration || "vidéo";
       badge.className = "tag";
       $("#dl-playlist-row").classList.add("hidden");
       $("#dl-playlist").checked = false;
       if (info.duration_s > 1) {
-        secReset(info.duration_s);
+        secReset(info.duration_s, info);
         $("#dl-section").classList.remove("hidden");
       } else {
         $("#dl-section").classList.add("hidden");
-        S.dl.sec.dur = 0;
+        secReset(0);
       }
     }
   }
@@ -558,9 +560,11 @@ function wireDownloader(st) {
         format: S.dl.mode === "video" ? S.dl.vformat : S.dl.aformat,
         // la case ne vaut que pour le lien qui vient d'etre analyse
         playlist: known ? $("#dl-playlist").checked : false,
-        section: useSec ? { start: sec.a, end: sec.b } : undefined,
+        section: useSec
+          ? { start: +sec.a.toFixed(3), end: +sec.b.toFixed(3) } : undefined,
       },
     });
+    if (secPlayer) secPlayer.pause();
     $("#dl-url").value = "";
     qRender();
     qPump();
@@ -759,69 +763,70 @@ function wireHistory() {
   });
 }
 
-/* ---------------- slider debut / fin (passage) ---------------- */
+/* ---------------- passage : apercu + debut / fin ---------------- */
 
-function secReset(dur) {
+/* Cocher « seulement un passage » remplace la miniature par un apercu
+   (flux basse definition lu directement chez YouTube & co, son a part si
+   besoin) : on cherche le passage en ecoutant, on pose debut / fin sur la
+   barre (poignees, touches I / O) ou on tape les temps. Sans flux lisible
+   (site qui demande d'etre connecte...), les temps se tapent quand meme. */
+let secPlayer = null;
+
+function secReset(dur, info) {
   const s = S.dl.sec;
   s.dur = dur;
   s.a = 0;
   s.b = dur;
   s.on = false;
+  s.info = info || null;
   $("#dl-sec-on").checked = false;
-  $("#dl-sec-ui").classList.add("hidden");
-  secRender();
+  secShow(false);
 }
 
-function secRender() {
+function secLabel() {
   const s = S.dl.sec;
-  if (!s.dur) return;
-  const pa = (s.a / s.dur) * 100, pb = (s.b / s.dur) * 100;
-  $("#rs-a").style.left = pa + "%";
-  $("#rs-b").style.left = pb + "%";
-  const fill = $("#rs-fill");
-  fill.style.left = pa + "%";
-  fill.style.width = (pb - pa) + "%";
-  $("#rs-start").textContent = fmtTime(s.a);
-  $("#rs-end").textContent = fmtTime(s.b);
-  $("#rs-len").textContent = "passage : " + fmtTime(s.b - s.a);
+  const full = s.a <= 0.05 && s.b >= s.dur - 0.05;
+  $("#dl-sec-len").textContent = full
+    ? "Toute la vidéo pour l'instant : règle le début et la fin."
+    : `Passage de ${MkPlayer.fmt(s.b - s.a)} : ${MkPlayer.fmt(s.a)} → ${MkPlayer.fmt(s.b)}`;
+}
+
+function secShow(on) {
+  const s = S.dl.sec;
+  $("#dl-sec-ui").classList.toggle("hidden", !on);
+  $("#dl-thumb").classList.toggle("hidden", on);
+  $("#dl-player").classList.toggle("hidden", !on);
+  if (!on) {
+    if (secPlayer) { secPlayer.destroy(); secPlayer = null; }
+    return;
+  }
+  if (secPlayer) return;
+  const pv = (s.info && s.info.preview) || null;
+  const sb = pv && pv.storyboard;
+  secPlayer = new MkPlayer($("#dl-player"), {
+    src: pv && pv.video, audioSrc: pv && pv.audio,
+    poster: s.info && s.info.thumb, duration: s.dur, fps: pv && pv.fps,
+    range: "always", a: s.a, b: s.b, fixed: true, loop: false,
+    volume: S.dl.vol == null ? 0.8 : S.dl.vol, muted: false,
+    thumbs: sb ? (t, d) => MkPlayer.storyboard(sb, t, d || s.dur) : null,
+    onRange: (a, b) => { s.a = a; s.b = b; secLabel(); },
+    onVolume: (v) => { S.dl.vol = v; },
+    onError: (err, p) => {
+      p.msg("Aperçu indisponible pour cette vidéo.<br>Tape le début et la fin, ou règle-les sur la barre.");
+      return true;
+    },
+  });
+  if (!pv || !pv.video) {
+    secPlayer.msg("Pas d'aperçu pour ce site.<br>Tape le début et la fin, ou règle-les sur la barre.");
+  }
+  secLabel();
 }
 
 function wireSection() {
   $("#dl-sec-on").addEventListener("change", (e) => {
     S.dl.sec.on = e.target.checked;
-    $("#dl-sec-ui").classList.toggle("hidden", !e.target.checked);
-    secRender();
+    secShow(e.target.checked);
   });
-
-  const slider = $("#rs");
-  let grab = null; // "a" | "b"
-
-  function valueAt(clientX) {
-    const r = slider.getBoundingClientRect();
-    const p = Math.min(Math.max((clientX - r.left) / r.width, 0), 1);
-    return Math.round(p * S.dl.sec.dur);
-  }
-
-  function move(e) {
-    if (!grab) return;
-    const s = S.dl.sec;
-    const v = valueAt(e.clientX);
-    if (grab === "a") s.a = Math.max(0, Math.min(v, s.b - 1));
-    else s.b = Math.min(s.dur, Math.max(v, s.a + 1));
-    secRender();
-  }
-
-  slider.addEventListener("pointerdown", (e) => {
-    const s = S.dl.sec;
-    if (!s.dur) return;
-    const v = valueAt(e.clientX);
-    grab = Math.abs(v - s.a) <= Math.abs(v - s.b) ? "a" : "b";
-    slider.setPointerCapture(e.pointerId);
-    move(e);
-  });
-  slider.addEventListener("pointermove", move);
-  slider.addEventListener("pointerup", () => { grab = null; });
-  slider.addEventListener("pointercancel", () => { grab = null; });
 }
 
 /* ---------------- compresseur ---------------- */

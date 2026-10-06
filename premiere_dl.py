@@ -4,7 +4,8 @@ Telecharge une video ou l'audio et garantit un fichier importable dans
 Premiere (H.264/AAC en mp4) : si YouTube livre de l'AV1/VP9 ou un mkv,
 conversion automatique. Progression en lignes JSON sur stdout.
 
-Usage : python -u premiere_dl.py <url> <h264|max|mp3>
+Usage : python -u premiere_dl.py <url> <h264|max|mp3> [debut fin] [--subs]
+        python -u premiere_dl.py --info <url>   (titre, duree, apercu du passage)
 """
 import glob
 import json
@@ -184,6 +185,12 @@ def pick_subtitles(info, video_path):
 
 
 def main():
+    if sys.argv[1:2] == ["--info"]:
+        # analyse seule, pour l'apercu du passage dans le panneau
+        if len(sys.argv) < 3:
+            raise RuntimeError("usage: premiere_dl.py --info <url>")
+        emit({"info": downloader.analyze(sys.argv[2], single=True)})
+        return
     argv = [a for a in sys.argv[1:] if a != "--subs"]
     want_subs = "--subs" in sys.argv[1:]
     if len(argv) < 2:
@@ -241,7 +248,7 @@ def main():
             return ydl.extract_info(url, download=True)
 
     try:
-        # cookies du navigateur illisibles : on reessaie sans (lien public)
+        # cookies du navigateur seulement si le lien demande d'etre connecte
         info = downloader.with_cookie_fallback(opts, attempt)
     except yt_dlp.utils.DownloadError as e:
         msg = downloader.friendly_error(e)

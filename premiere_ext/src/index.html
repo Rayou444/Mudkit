@@ -304,7 +304,18 @@
     flex:1; min-height:0; display:flex; align-items:center; justify-content:center;
     padding:16px; cursor:pointer;
   }
-  #viewer img, #viewer video { max-width:100%; max-height:100%; cursor:default; }
+  #viewer img { max-width:100%; max-height:100%; cursor:default; }
+  /* lecteur video (player.js) : prend toute la place, couleurs du panneau */
+  #viewer .vbody.hasplayer { padding:8px 8px 0; align-items:stretch; }
+  #viewer .mkp { width:100%; cursor:default; --mkp-accent:var(--accent-h); --mkp-range:rgba(229,163,46,.30);
+    --mkp-range-edge:var(--star); --mkp-fs:11px; --mkp-radius:3px; }
+  /* apercu du passage dans la fenetre de telechargement (player.js) */
+  .cutbox { margin-top:8px; }
+  #cutplayer .mkp { --mkp-accent:var(--accent-h); --mkp-range:rgba(229,163,46,.30);
+    --mkp-range-edge:var(--star); --mkp-fs:11px; --mkp-radius:3px; }
+  .cutmsg { color:var(--dim); font-size:10.5px; margin-top:5px; line-height:1.5; }
+  .cutmsg:empty { display:none; }
+  #viewer .vinfo { flex:0 0 auto; font-size:10px; color:var(--faint); white-space:nowrap; }
   /* couleur fixe : le fond de la visionneuse est toujours noir (avec
      --dim, le texte etait gris fonce sur noir en theme clair) */
   #viewer .vmsg { color:#B4B4B4; font-size:11px; text-align:center; line-height:1.8; padding:0 18px; }
@@ -439,6 +450,7 @@
   <div class="vbody" id="vbody"></div>
   <div class="vbar">
     <div class="vname" id="vname"></div>
+    <div class="vinfo" id="vinfo"></div>
     <button class="ghost" id="vadd" title="Importer dans Premiere"><svg class="ic" viewBox="0 0 16 16"><path d="M8 3.4v9.2M3.4 8h9.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
     <button class="ghost" id="vclose" title="Fermer"><svg class="ic" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
   </div>
@@ -464,15 +476,20 @@
       <input type="checkbox" id="cut">
       Passage seulement (début → fin)
     </label>
-    <label class="check" title="Sous-titres de la vidéo (ou ceux générés par YouTube), ajoutés en piste de légendes">
-      <input type="checkbox" id="subs">
-      Sous-titres en légendes (si la vidéo en a)
-    </label>
+    <div id="cutbox" class="cutbox hidden">
+      <div id="cutplayer"></div>
+      <div id="cutmsg" class="cutmsg"></div>
+    </div>
     <div id="cutrow" class="cutrow hidden">
       <input id="t-in" type="text" spellcheck="false" placeholder="0:00">
       <span class="arrow"><svg class="ic" viewBox="0 0 16 16"><path d="M3 8h10M9.4 4.4L13 8l-3.6 3.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       <input id="t-out" type="text" spellcheck="false" placeholder="1:30">
     </div>
+
+    <label class="check" title="Sous-titres de la vidéo (ou ceux générés par YouTube), ajoutés en piste de légendes">
+      <input type="checkbox" id="subs">
+      Sous-titres en légendes (si la vidéo en a)
+    </label>
 
     <label class="t">À l'import</label>
     <div class="seg" id="act">
@@ -491,6 +508,7 @@
   </div>
 </div>
 
+<script src="player.js"></script>
 <script src="panel.js"></script>
 <script src="library.js"></script>
 </body>

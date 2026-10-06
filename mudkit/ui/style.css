@@ -692,13 +692,14 @@ html:not([data-theme="dark"]) .theme-btn .ic-sun { display: none; }
 .placeholder.compact .hero-chips { display: none; }
 
 .media-card {
+  flex-shrink: 0;   /* sinon la colonne l'ecrase et coupe le lecteur */
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-xl);
   overflow: hidden;
   box-shadow: var(--shadow);
 }
-.media-card img {
+.media-card > img {
   width: 100%;
   aspect-ratio: 16 / 9;
   object-fit: cover;
@@ -716,32 +717,14 @@ html:not([data-theme="dark"]) .theme-btn .ic-sun { display: none; }
 .media-sub { font-size: 13px; color: var(--dim); margin: 6px 0 12px; }
 
 .media-section { padding: 14px 22px 18px; border-top: 1px solid var(--line); }
-.rslider { position: relative; height: 30px; margin-top: 12px; touch-action: none; }
-.rslider::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 12px;
-  height: 6px;
-  border-radius: 99px;
-  background: var(--surface-3);
-}
-.rs-fill { position: absolute; top: 12px; height: 6px; border-radius: 99px; background: var(--grad); }
-.rs-handle {
-  position: absolute;
-  top: 3px;
-  width: 24px;
-  height: 24px;
-  margin-left: -12px;
-  border-radius: 50%;
-  background: var(--surface);
-  border: 2px solid var(--ink);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, .25);
-  cursor: ew-resize;
-}
-.rs-labels { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); margin-top: 4px; font-weight: 600; }
-.rs-mid { color: var(--accent-text); font-weight: 700; }
+/* apercu du passage (lecteur MkPlayer, cf. player.js) */
+.dl-player { --mkp-accent: #F28A36; --mkp-range: rgba(62, 139, 240, .34); --mkp-range-edge: #3E8BF0;
+  --mkp-radius: 0; --mkp-fs: 13px; }
+.dl-player .mkp { border-radius: 0; }
+.dl-player .mkp-stage { max-height: 48vh; }
+.sec-ui { margin-top: 10px; }
+.sec-len { font-size: 13px; font-weight: 700; color: var(--accent-text); }
+.sec-help { font-size: 12px; color: var(--dim); margin-top: 4px; line-height: 1.5; }
 
 .mo-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .mo-row input {

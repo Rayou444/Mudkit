@@ -434,6 +434,7 @@
 
           <div id="dl-media" class="media-card hidden">
             <img id="dl-thumb" alt="">
+            <div id="dl-player" class="dl-player hidden"></div>
             <div class="media-meta">
               <div id="dl-title" class="media-title"></div>
               <div id="dl-channel" class="media-sub"></div>
@@ -445,17 +446,11 @@
                 <span class="box"></span>
                 Télécharger seulement un passage
               </label>
-              <div id="dl-sec-ui" class="hidden">
-                <div class="rslider" id="rs">
-                  <div class="rs-fill" id="rs-fill"></div>
-                  <div class="rs-handle" id="rs-a"></div>
-                  <div class="rs-handle" id="rs-b"></div>
-                </div>
-                <div class="rs-labels">
-                  <span id="rs-start">0:00</span>
-                  <span id="rs-len" class="rs-mid"></span>
-                  <span id="rs-end">0:00</span>
-                </div>
+              <div id="dl-sec-ui" class="sec-ui hidden">
+                <div id="dl-sec-len" class="sec-len"></div>
+                <div class="sec-help">Écoute l'aperçu, puis pose le début et la fin :
+                  poignées sur la barre, boutons Début / Fin (touches I et O), ou tape les temps.
+                  P écoute le passage en boucle.</div>
               </div>
             </div>
           </div>
@@ -640,6 +635,7 @@
 
 <div id="toasts"></div>
 
+<script src="player.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
