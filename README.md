@@ -163,6 +163,24 @@ Composer (arborescence à gauche, grille à droite), sans limite d'éléments :
   `opts.bg`, abandonnées si le filtre change) puis gardées dans l'index.
 - **Récents** en tête de l'arbre : les 60 derniers fichiers posés (double-clic,
   `+`) ou glissés. `−` sur Récents les vide.
+- **Points d'entrée / sortie** : `I` / `O` pendant l'écoute (ou dans la
+  visionneuse vidéo) → `marks[chemin] = {a, b, d}`, gardés dans le stockage
+  du panneau. L'import passe `in, out` à `mudkitLibImport`, qui crée un
+  sous-plan (`createSubClip`, ticks) et le pose. Bande `.mk` sur la vignette.
+  Le glisser-déposer pose toujours le fichier entier (seul un chemin passe).
+- **Multi-sélection** : Ctrl+clic, Maj+clic, Ctrl+A, Échap (`selSet`).
+  Double-clic / `+` → `mudkitLibImportMany([[chemin, in, out], …])`, qui pose
+  les fichiers les uns après les autres (sinon chaque insertion au même
+  endroit inversait l'ordre). Le glisser passe `com.adobe.cep.dnd.file.0..N`.
+- **« Dans ce projet »** : `mudkitProjectMedia()` renvoie les chemins des
+  médias du projet ouvert (au démarrage, au retour du focus, après un import,
+  chaque minute). Badge `.ip` sur la vignette et dossier virtuel `@project`.
+- **Sous-titres** (case dans la fenêtre de téléchargement) : `premiere_dl.py
+  --subs` récupère les sous-titres du site (sinon automatiques) en `.srt`,
+  recalés par `cut_srt` pour un passage ; `mudkitImport(chemin, action, srt)`
+  les importe et crée une piste de légendes (`createCaptionTrack`).
+- `host.jsx` est testé hors de Premiere contre une maquette de l'API
+  (projet, chutiers, séquence, pistes) : `node premiere_ext/tests/host_mock.test.js`.
 - Dossiers repérés **par chemin** (clés `racine|chemin`), plus par position.
   Un dossier introuvable au démarrage (disque débranché) reste enregistré et
   grisé dans l'arbre ; un clic le remonte s'il est revenu, `−` l'oublie.

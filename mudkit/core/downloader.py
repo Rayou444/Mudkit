@@ -48,6 +48,37 @@ def cookie_options():
     return {}
 
 
+def is_cookie_read_error(e):
+    low = str(e).lower()
+    return "cookie" in low and any(h in low for h in _COOKIE_READ_HINTS)
+
+
+def with_cookie_fallback(opts, fn):
+    """fn(opts), et si les cookies du navigateur sont illisibles (navigateur
+    ouvert qui verrouille sa base, chiffrement de Chrome / Edge / Brave), on
+    reessaie SANS eux : une video publique n'en a pas besoin. Avant, un
+    navigateur ouvert faisait echouer TOUS les telechargements. Si le lien
+    demandait bien d'etre connecte, c'est l'erreur des cookies qui remonte
+    (friendly_error en fait un message clair)."""
+    import yt_dlp
+    try:
+        return fn(opts)
+    except yt_dlp.utils.DownloadError as e:
+        if not ("cookiesfrombrowser" in opts and is_cookie_read_error(e)):
+            raise
+        first = e
+    plain = dict(opts)
+    plain.pop("cookiesfrombrowser", None)
+    if os.path.isfile(COOKIES_FILE):
+        plain["cookiefile"] = COOKIES_FILE
+    try:
+        return fn(plain)
+    except yt_dlp.utils.DownloadError as e2:
+        if looks_like_auth_error(e2):
+            raise first from e2
+        raise
+
+
 def looks_like_auth_error(msg):
     low = str(msg).lower()
     return any(h in low for h in _AUTH_HINTS)
@@ -107,9 +138,11 @@ def analyze(url):
             # memes cookies que le telechargement : sinon une video +18 ou
             # reservee aux membres echouait des l'analyse
             **cookie_options()}
+    def extract(o):
+        with yt_dlp.YoutubeDL(o) as ydl:
+            return ydl.extract_info(url, download=False)
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        info = with_cookie_fallback(opts, extract)
     except yt_dlp.utils.DownloadError as e:
         msg = friendly_error(e)
         if msg:
@@ -228,8 +261,8 @@ def download(url, mode, quality, container, playlist, dest,
         # un passage est telecharge par ffmpeg, sans progression detaillee :
         # l'interface affiche une barre d'attente plutot que rien
         progress({"phase": "section"})
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
+    def attempt(o, dest=dest):
+        with yt_dlp.YoutubeDL(o) as ydl:
             # extraction puis telechargement en deux temps (comme le fait
             # extract_info) pour choisir un nom libre entre les deux
             info = ydl.extract_info(url, download=False, process=False)
@@ -249,7 +282,10 @@ def download(url, mode, quality, container, playlist, dest,
                 _avoid_name_clash(ydl, info, dest)
             elif playlist and kind == "playlist":
                 dest = _playlist_folder(ydl, info, dest)
-            info = ydl.process_ie_result(info, download=True)
+            return ydl.process_ie_result(info, download=True), dest
+
+    try:
+        info, dest = with_cookie_fallback(opts, attempt)
     except yt_dlp.utils.DownloadCancelled:
         raise Cancelled() from None
     except yt_dlp.utils.DownloadError as e:

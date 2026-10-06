@@ -276,6 +276,20 @@
     #vol { width:40px; }
   }
   .tile.playing.paused .th { border-color:var(--dim); box-shadow:none; }
+  /* passage choisi (I / O) et badge « deja dans ce projet » */
+  .player .pmarks { flex:0 0 auto; color:var(--star); font-size:10px; cursor:pointer; }
+  .player .pmarks:empty { display:none; }
+  .tile .mk {
+    position:absolute; top:0; bottom:0; pointer-events:none;
+    background:rgba(229,163,46,.25); border-left:2px solid var(--star); border-right:2px solid var(--star);
+  }
+  .tile .ip {
+    position:absolute; right:3px; top:3px; width:15px; height:15px; border-radius:50%;
+    background:var(--green); color:#FFF; display:none; align-items:center; justify-content:center;
+    pointer-events:none;
+  }
+  .tile .ip svg.ic { width:10px; height:10px; }
+  .tile.inproj .ip { display:flex; }
 
   /* ----------------------------- visionneuse ---------------------------- */
   #viewer {
@@ -402,7 +416,7 @@
   <button class="ghost play" id="pplay" title="Lecture (Espace)"></button>
   <button class="ghost" id="pnext" title="Son suivant"></button>
   <div class="pmid">
-    <div class="ptop"><span class="pname" id="pname"></span><span class="ptime" id="ptime"></span></div>
+    <div class="ptop"><span class="pname" id="pname"></span><span class="pmarks" id="pmarks"></span><span class="ptime" id="ptime"></span></div>
     <input id="pseek" type="range" min="0" max="1000" value="0" title="Position (flèches gauche / droite : 5 s)">
   </div>
   <button class="ghost" id="prep"></button>
@@ -449,6 +463,10 @@
     <label class="check">
       <input type="checkbox" id="cut">
       Passage seulement (début → fin)
+    </label>
+    <label class="check" title="Sous-titres de la vidéo (ou ceux générés par YouTube), ajoutés en piste de légendes">
+      <input type="checkbox" id="subs">
+      Sous-titres en légendes (si la vidéo en a)
     </label>
     <div id="cutrow" class="cutrow hidden">
       <input id="t-in" type="text" spellcheck="false" placeholder="0:00">

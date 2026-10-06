@@ -186,6 +186,12 @@ document.addEventListener("keydown", function (e) {
   }
 });
 
+/* case Sous-titres : retenue d'un telechargement a l'autre */
+try { $("#subs").checked = localStorage.getItem("mudkit.dl.subs") === "1"; } catch (e) {}
+$("#subs").addEventListener("change", function (e) {
+  try { localStorage.setItem("mudkit.dl.subs", e.target.checked ? "1" : "0"); } catch (er) {}
+});
+
 $("#cut").addEventListener("change", function (e) {
   $("#cutrow").classList.toggle("hidden", !e.target.checked);
 });
@@ -239,6 +245,7 @@ $("#go").addEventListener("click", function () {
                     "(ex. 0:30 → 1:45).", "err");
     args.push(String(tin), String(tout));
   }
+  if ($("#subs").checked && mode !== "mp3") args.push("--subs");
 
   var spawn = nodeReq("child_process").spawn;
   running(true);
@@ -477,13 +484,21 @@ function onMessage(msg) {
   if (msg.done) {
     $("#bar").classList.add("indet");
     status("Import dans Premiere…");
-    evalScript("mudkitImport(" + esStr(msg.path) + ", " + esStr(action) + ")")
+    evalScript("mudkitImport(" + esStr(msg.path) + ", " + esStr(action) +
+               (msg.subs ? ", " + esStr(msg.subs) : "") + ")")
       .then(function (res) {
+      var bits = String(res).split("|");
+      res = bits[0];
+      var subsNote = bits[1] === "subs_track" ? " + sous-titres en légendes"
+                   : bits[1] === "subs_bin" ? " (sous-titres dans le chutier)"
+                   : msg.nosubs ? " (pas de sous-titres pour cette vidéo)" : "";
       running(false);
+      // la bibliotheque met a jour son badge « dans ce projet »
+      try { window.dispatchEvent(new Event("mudkit-imported")); } catch (e) {}
       if (res === "inserted")
-        status("OK " + msg.title + " : importé et posé sur la timeline", "ok");
+        status("OK " + msg.title + " : importé et posé sur la timeline" + subsNote, "ok");
       else if (res === "imported")
-        status("OK " + msg.title + " : dans le chutier Mudkit", "ok");
+        status("OK " + msg.title + " : dans le chutier Mudkit" + subsNote, "ok");
       else if (res === "imported_no_seq")
         status("OK Importé dans le chutier Mudkit (aucune séquence active " +
                "pour l'insertion)", "ok");

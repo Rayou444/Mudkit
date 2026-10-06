@@ -6,8 +6,10 @@ conversion automatique. Progression en lignes JSON sur stdout.
 
 Usage : python -u premiere_dl.py <url> <h264|max|mp3>
 """
+import glob
 import json
 import os
+import re
 import sys
 import time
 
@@ -120,14 +122,77 @@ def outtmpl(mode, section):
     return os.path.join(DEST, "%(title).150B [%(id)s]" + tag + ".%(ext)s")
 
 
+# ------------------------------------------------------------ sous-titres
+
+SUB_LANGS = ["fr", "fr-FR", "en", "en-US", "en-GB"]   # par ordre de preference
+_TS = re.compile(r"(\d+):(\d\d):(\d\d)[,.](\d{1,3})")
+
+
+def _secs(m):
+    h, mi, s, ms = m.groups()
+    return int(h) * 3600 + int(mi) * 60 + int(s) + int(ms.ljust(3, "0")) / 1000
+
+
+def _ts(sec):
+    ms = int(round(max(0.0, sec) * 1000))
+    return (f"{ms // 3600000:02}:{ms // 60000 % 60:02}:"
+            f"{ms // 1000 % 60:02},{ms % 1000:03}")
+
+
+def cut_srt(path, start, end):
+    """Garde les sous-titres du passage [start, end] et les recale a 0 : le
+    fichier de YouTube couvre toute la video, l'extrait commence a 0."""
+    with open(path, encoding="utf-8", errors="replace") as f:
+        blocks = re.split(r"\r?\n\s*\r?\n", f.read().strip())
+    out = []
+    for b in blocks:
+        lines = b.splitlines()
+        i = next((k for k, line in enumerate(lines) if "-->" in line), None)
+        if i is None:
+            continue
+        a, z = lines[i].split("-->", 1)
+        ma, mz = _TS.search(a), _TS.search(z)
+        if not (ma and mz):
+            continue
+        s, e = _secs(ma), _secs(mz)
+        if e <= start or s >= end:
+            continue
+        out.append(f"{len(out) + 1}\n{_ts(max(s, start) - start)} --> "
+                   f"{_ts(min(e, end) - start)}\n" + "\n".join(lines[i + 1:]))
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n\n".join(out) + "\n")
+    return bool(out)
+
+
+def pick_subtitles(info, video_path):
+    """Le .srt telecharge avec la video, francais d'abord, sinon None."""
+    found = {}
+    for lang, sub in (info.get("requested_subtitles") or {}).items():
+        p = (sub or {}).get("filepath")
+        if p:
+            p = os.path.splitext(p)[0] + ".srt"
+            if os.path.isfile(p):
+                found[lang] = p
+    if not found:  # filepath pas mis a jour apres conversion : on cherche
+        base = os.path.splitext(video_path)[0]
+        for p in glob.glob(glob.escape(base) + ".*.srt"):
+            found[p.rsplit(".", 2)[-2]] = p
+    for lang in SUB_LANGS + sorted(found):
+        if lang in found:
+            return found[lang]
+    return None
+
+
 def main():
-    if len(sys.argv) < 3:
+    argv = [a for a in sys.argv[1:] if a != "--subs"]
+    want_subs = "--subs" in sys.argv[1:]
+    if len(argv) < 2:
         raise RuntimeError(
-            "usage: premiere_dl.py <url> <h264|max|mp3> [debut fin]")
-    url, mode = sys.argv[1], sys.argv[2]
+            "usage: premiere_dl.py <url> <h264|max|mp3> [debut fin] [--subs]")
+    url, mode = argv[0], argv[1]
     section = None
-    if len(sys.argv) >= 5:
-        section = (float(sys.argv[3]), float(sys.argv[4]))
+    if len(argv) >= 4:
+        section = (float(argv[2]), float(argv[3]))
     os.makedirs(DEST, exist_ok=True)
 
     import yt_dlp
@@ -163,11 +228,21 @@ def main():
     # un lien de playlist ou un carrousel : seulement le 1er element (avant,
     # tout le lot partait puis « fichier telecharge introuvable »)
     opts["playlist_items"] = "1"
+    if want_subs and mode != "mp3":
+        # sous-titres du site (sinon ceux generes automatiquement), en .srt
+        opts.update({"writesubtitles": True, "writeautomaticsub": True,
+                     "subtitleslangs": SUB_LANGS, "subtitlesformat": "srt/vtt/best"})
+        opts.setdefault("postprocessors", []).append(
+            {"key": "FFmpegSubtitlesConvertor", "format": "srt"})
     opts["progress_hooks"] = [hook]
 
+    def attempt(o):
+        with yt_dlp.YoutubeDL(o) as ydl:
+            return ydl.extract_info(url, download=True)
+
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+        # cookies du navigateur illisibles : on reessaie sans (lien public)
+        info = downloader.with_cookie_fallback(opts, attempt)
     except yt_dlp.utils.DownloadError as e:
         msg = downloader.friendly_error(e)
         if msg:
@@ -181,11 +256,16 @@ def main():
     if not path or not os.path.isfile(path):
         raise RuntimeError("fichier telecharge introuvable")
 
+    subs = pick_subtitles(info, path) if want_subs and mode != "mp3" else None
+    if subs and section and not cut_srt(subs, *section):
+        subs = None  # aucun sous-titre dans le passage
+
     if mode != "mp3" and needs_transcode(path):
         emit({"transcode_start": True})
         path = transcode_for_premiere(path)
 
-    emit({"done": True, "path": path, "title": info.get("title") or ""})
+    emit({"done": True, "path": path, "title": info.get("title") or "",
+          "subs": subs, "nosubs": bool(want_subs and mode != "mp3" and not subs)})
 
 
 if __name__ == "__main__":

@@ -72,6 +72,7 @@ var ICO = {
   mogrt:  S + '<path d="M8 2.3l5.7 5.7L8 13.7 2.3 8z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 5.5L10.5 8 8 10.5 5.5 8z" fill="currentColor"/></svg>',
   chev:   S + '<path d="M6.2 4.4L9.8 8l-3.6 3.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   folder: S + '<path d="M1.9 4h4l1.1 1.5h7.1v6.6H1.9z" fill="currentColor"/></svg>',
+  check:  S + '<path d="M3.5 8.4l3 3 6-6.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   clock:  S + '<circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 5v3.2l2.2 1.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   star:   S + '<path d="M8 2.2l1.75 3.54 3.91.57-2.83 2.76.67 3.89L8 11.13l-3.5 1.83.67-3.89L2.34 6.31l3.91-.57z" fill="currentColor"/></svg>',
   plus:   S + '<path d="M8 3.4v9.2M3.4 8h9.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
@@ -422,6 +423,11 @@ function renderTree() {
     t.appendChild(flatRow(RECENTS, ICO.clock, "R\u00E9cents", recentItems().length, "",
       "Les derniers fichiers poses ou glisses sur la timeline"));
   }
+  var pi = projectItems();
+  if (pi.length) {
+    t.appendChild(flatRow(PROJECT, ICO.check, "Dans ce projet", pi.length, "",
+      "Les fichiers de la bibliotheque deja utilises dans le projet Premiere ouvert"));
+  }
   buildTree().forEach(function (n) { renderNode(t, n, 0); });
   missing.forEach(function (r) {
     var row = flatRow(MISSING + r, ICO.folder, base(r), "?", " off",
@@ -550,6 +556,7 @@ function computeView() {
   var src = all, selLi = -1, selRel = "";
   if (!terms) {
     if (sel === RECENTS) src = recentItems();
+    else if (sel === PROJECT) src = projectItems();
     else if (sel.indexOf(MISSING) === 0) return [];
     else if (isNodeKey(sel)) {
       selLi = libOfKey(sel);
@@ -595,6 +602,7 @@ function redraw(keepScroll, soft) {
   durMissing = [];
   view = computeView();
   if (!soft) startDurationPass();
+  if (!keepScroll && !soft) { selSet = {}; if (selPath) selSet[selPath] = 1; }
 
   if (!view.length) {
     var d = document.createElement("div"); d.className = "empty";
@@ -605,6 +613,7 @@ function redraw(keepScroll, soft) {
       : durPass && durPass.done < durPass.total ? "Mesure des durees en cours..."
       : favOnly ? "Aucun favori ici."
       : sel === RECENTS && !query.trim() ? "Rien de recent pour l'instant."
+      : sel === PROJECT && !query.trim() ? "Aucun fichier de la bibliotheque dans ce projet."
       : "Rien a afficher.";
     g.appendChild(d);
   } else {
@@ -697,7 +706,7 @@ function countLine() {
   var n = { audio:0, video:0, image:0, mogrt:0 };
   view.forEach(function (i) { n[i.k]++; });
   var where = query.trim() ? "\u00AB " + query.trim() + " \u00BB"
-            : sel === RECENTS ? "recents" : (sel ? "" : "tout");
+            : sel === RECENTS ? "recents" : sel === PROJECT ? "dans ce projet" : (sel ? "" : "tout");
   say(view.length + " elements " + (where ? where + " " : "") +
       "- " + n.audio + " sons, " + n.video + " videos, " + n.image + " images" +
       (n.mogrt ? ", " + n.mogrt + " mogrt" : "") +
@@ -711,7 +720,9 @@ function tile(it) {
   el.title = it.p + "\n" + human(it.sz) +
     (it.k === "audio" ? "\n\nClic sur le visuel : lecture a partir de cet endroit" +
                         "\nClic sur le nom : lecture / pause" : "") +
-    "\nDouble-clic : importer";
+    "\nDouble-clic : importer" +
+    "\nCtrl / Maj+clic : selection multiple" +
+    (it.k === "audio" || it.k === "video" ? "\nI / O pendant l'ecoute : ne poser qu'un passage" : "");
   el._it = it;
   el.setAttribute("draggable", "true");
 
@@ -719,6 +730,7 @@ function tile(it) {
   var gl = document.createElement("div"); gl.className = "glyph"; gl.innerHTML = ICO[it.k] || ""; th.appendChild(gl);
   var add = document.createElement("div"); add.className = "add"; add.innerHTML = ICO.plus; add.title = "Importer"; th.appendChild(add);
   var dur = document.createElement("div"); dur.className = "dur"; th.appendChild(dur);
+  var ip = document.createElement("div"); ip.className = "ip"; ip.innerHTML = ICO.check; ip.title = "Deja dans ce projet"; th.appendChild(ip);
 
   var meta = document.createElement("div"); meta.className = "meta";
   var bd = document.createElement("span"); bd.className = "badge " + it.k; bd.innerHTML = ICO[it.k] || "";
@@ -730,19 +742,27 @@ function tile(it) {
   el.appendChild(th); el.appendChild(meta);
 
   // Glisser vers la timeline : cle CEP officielle.
+  var dragged = [];
   el.addEventListener("dragstart", function (ev) {
+    // glisser un fichier de la selection = glisser toute la selection
+    dragged = selSet[it.p] && selCount() > 1 ? selectedItems() : [it];
     try {
       ev.dataTransfer.effectAllowed = "copy";
-      ev.dataTransfer.setData("com.adobe.cep.dnd.file.0", it.p);
-      ev.dataTransfer.setData("text/uri-list", fileUrl(it.p));
-      ev.dataTransfer.setData("text/plain", it.p);
+      dragged.forEach(function (g, i) { ev.dataTransfer.setData("com.adobe.cep.dnd.file." + i, g.p); });
+      ev.dataTransfer.setData("text/uri-list", dragged.map(function (g) { return fileUrl(g.p); }).join("\r\n"));
+      ev.dataTransfer.setData("text/plain", dragged.map(function (g) { return g.p; }).join("\n"));
       ev.dataTransfer.setDragImage(el, 40, 22);
     } catch (e) {}
-    say("Glisse \u00AB " + it.n + " \u00BB sur la timeline...");
+    say(dragged.length > 1 ? "Glisse les " + dragged.length + " fichiers sur la timeline..."
+        : marks[it.p] ? "Glisser pose le fichier entier ; pour le passage choisi : double-clic ou +."
+        : "Glisse \u00AB " + it.n + " \u00BB sur la timeline...");
   });
   el.addEventListener("dragend", function (ev) {
-    // depose quelque part (la timeline) : il rejoint les Recents
-    if (ev.dataTransfer && ev.dataTransfer.dropEffect !== "none") pushRecent(it.p);
+    // depose quelque part (la timeline) : ils rejoignent les Recents
+    if (ev.dataTransfer && ev.dataTransfer.dropEffect !== "none") {
+      pushRecents(dragged.map(function (g) { return g.p; }).reverse());
+      refreshProjectSoon();
+    }
   });
 
   fv.addEventListener("click", function (ev) {
@@ -756,13 +776,22 @@ function tile(it) {
   el.addEventListener("click", function (ev) {
     // 2e clic d'un double-clic : c'est un import, pas une bascule lecture/pause
     if (ev.detail > 1) return;
-    selectTile(el);
+    if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return multiSelect(el, ev.shiftKey);
     // Clic DANS le visuel : on en tire la position de lecture (0 a 1).
     var frac = null;
     if (th.contains(ev.target)) {
       var r = th.getBoundingClientRect();
       if (r.width) frac = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
     }
+    /* Dans une multi-selection, le 1er clic d'un double-clic ne doit pas la
+       reduire a ce seul fichier (le double-clic pose toute la selection) :
+       on attend un instant, comme pour la visionneuse. */
+    if (selSet[it.p] && selCount() > 1) {
+      clearTimeout(viewTimer);
+      viewTimer = setTimeout(function () { selectTile(el); preview(el, it, frac); }, 260);
+      return;
+    }
+    selectTile(el);
     if (it.k === "audio") return preview(el, it, frac);
     /* Image / video : la visionneuse (plein panneau) attend un instant. Ouverte
        tout de suite, elle recevait le 2e clic et le double-clic n'importait
@@ -787,7 +816,10 @@ function tile(it) {
     });
   }
   if (cur && cur.p === it.p) markTile(el);
-  if (selPath === it.p) { el.classList.add("sel"); selTile = el; }
+  if (selSet[it.p]) el.classList.add("sel");
+  if (selPath === it.p) selTile = el;
+  if (isInProject(it)) el.classList.add("inproj");
+  if (marks[it.p]) markBand(el);
   return el;
 }
 
@@ -1225,6 +1257,7 @@ function playAudio(el, it, frac) {
   markTile(el || tileOf(it));
   $("#pname").textContent = it.n.replace(/\.[^.]+$/, "");
   $("#pname").title = it.p;
+  showMarks(it);
   audio.onerror = null;
   pauseAudio();
   syncUI();
@@ -1299,10 +1332,10 @@ function closeViewer() {
   $("#vbody").innerHTML = ""; $("#viewer").classList.remove("on"); viewerItem = null;
 }
 function selectTile(el) {
-  selPath = el._it.p;          // retrouve la selection quand la tuile est recreee
-  if (selTile === el) return;
-  if (selTile) selTile.classList.remove("sel");
-  selTile = el; el.classList.add("sel");
+  var p = el._it.p;            // retrouve la selection quand la tuile est recreee
+  selPath = p; selAnchor = p; selTile = el;
+  selSet = {}; selSet[p] = 1;
+  refreshSel();
 }
 
 /* Une image se regarde par-dessus la musique ; une video a son propre son,
@@ -1313,6 +1346,177 @@ function preview(el, it, frac) {
   if (it.k === "mogrt") return say("Modele d'animation : double-clic ou + pour le poser sur la timeline.");
   if (it.k === "video") pauseAudio();
   openViewer(it);
+}
+
+/* ----------------- multi-selection, passages, projet ------------------- */
+
+/* Multi-selection : Ctrl+clic ajoute / retire, Maj+clic prend tout entre le
+   dernier clic et celui-ci, Ctrl+A tout ce qui est affiche, Echap vide.
+   Double-clic ou + sur un fichier selectionne pose TOUTE la selection a la
+   suite ; glisser la selection la depose d'un coup. */
+var selSet = {};           // chemin -> 1
+var selAnchor = null;      // chemin du dernier clic (depart de Maj+clic)
+
+function selCount() { var n = 0; for (var k in selSet) n++; return n; }
+function viewIndex(p) {
+  for (var i = 0; i < view.length; i++) if (view[i].p === p) return i;
+  return -1;
+}
+function selectedItems() { return view.filter(function (it) { return selSet[it.p]; }); }
+function refreshSel() {
+  vtiles.forEach(function (el) { el.classList.toggle("sel", !!selSet[el._it.p]); });
+  var n = selCount();
+  if (n > 1) say(n + " fichiers selectionnes : double-clic ou + pour les poser a la suite, ou glisse-les.", "ok");
+}
+function multiSelect(el, range) {
+  var p = el._it.p;
+  if (range && selAnchor) {
+    var a = viewIndex(selAnchor), b = viewIndex(p);
+    if (a < 0) a = b;
+    for (var i = Math.min(a, b); i <= Math.max(a, b); i++) selSet[view[i].p] = 1;
+  } else {
+    if (selSet[p] && selCount() > 1) delete selSet[p]; else selSet[p] = 1;
+    selAnchor = p;
+  }
+  selPath = p; selTile = el;
+  refreshSel();
+}
+function selectAllInView() {
+  selSet = {};
+  view.forEach(function (it) { selSet[it.p] = 1; });
+  refreshSel();
+}
+function clearMultiSel() {
+  if (selCount() <= 1) return false;
+  selSet = {};
+  if (selPath) selSet[selPath] = 1;
+  refreshSel(); countLine();
+  return true;
+}
+
+/* Points d'entree / sortie : touches I et O pendant l'ecoute d'un son, ou
+   dans la visionneuse video. Seul ce passage est ensuite pose (sous-plan
+   Premiere, le fichier d'origine n'est pas touche). Gardes d'une session a
+   l'autre ; un clic sur \u00AB In > Out \u00BB dans le lecteur les efface. Glisser
+   pose toujours le fichier entier (seul un chemin de fichier passe). */
+var marks = {};            // chemin -> { a: entree, b: sortie, d: duree } en s
+var MARKS_MAX = 300;
+
+function saveMarks() {
+  var keys = Object.keys(marks);
+  if (keys.length > MARKS_MAX) keys.slice(0, keys.length - MARKS_MAX).forEach(function (k) { delete marks[k]; });
+  lsSet("mudkit.lib.marks", JSON.stringify(marks));
+}
+/* 1:05.3 : au dixieme, utile pour les bruitages de moins d'une seconde */
+function fineClock(s) {
+  var m = Math.floor(s / 60), r = s - m * 60;
+  return m + ":" + (r < 10 ? "0" : "") + r.toFixed(1);
+}
+function markArgs(it) {
+  var m = marks[it.p];
+  return m && m.b > m.a ? m.a.toFixed(3) + "," + m.b.toFixed(3) : "null,null";
+}
+function setMark(which) {
+  var vid = $("#viewer").classList.contains("on") && $("#vbody").querySelector("video");
+  var it, t, dur;
+  if (vid && viewerItem) { it = viewerItem; t = vid.currentTime; dur = vid.duration; }
+  else if (cur) { it = cur; t = audio.currentTime; dur = audio.duration; }
+  else return say("Lance d'abord l'ecoute d'un son (ou ouvre une video) pour placer un point d'entree / sortie.", "err");
+  var full = isFinite(dur) ? dur : t;
+  var m = marks[it.p] || { a: 0, b: full };
+  if (which === "in") { m.a = t; if (m.b <= t) m.b = full; }
+  else { m.b = t; if (m.a >= t) m.a = 0; }
+  if (isFinite(dur)) m.d = dur;
+  delete marks[it.p]; marks[it.p] = m;   // en dernier : le plus recent est garde
+  saveMarks(); showMarks(it);
+  say((which === "in" ? "Entree" : "Sortie") + " placee : seul le passage " + fineClock(m.a) + " > " + fineClock(m.b) +
+      " sera pose (double-clic ou +).", "ok");
+}
+function clearMarks(it) {
+  if (!it || !marks[it.p]) return;
+  delete marks[it.p]; saveMarks(); showMarks(it);
+  say("Passage efface : le fichier entier sera pose.", "ok");
+}
+function showMarks(it) {
+  var m = cur && marks[cur.p], pm = $("#pmarks");
+  pm.textContent = m ? "In " + fineClock(m.a) + " > Out " + fineClock(m.b) : "";
+  pm.title = m ? "Seul ce passage sera pose. Clic pour l'effacer." : "";
+  if (viewerItem) {
+    var vm = marks[viewerItem.p];
+    $("#vname").textContent = viewerItem.p + (vm ? "   [In " + fineClock(vm.a) + " > Out " + fineClock(vm.b) + "]" : "");
+  }
+  vtiles.forEach(function (el) { if (!it || el._it.p === it.p) markBand(el); });
+}
+/* Bande orange sur la vignette : la partie qui sera posee. */
+function markBand(el) {
+  var m = marks[el._it.p], th = el.querySelector(".th"), band = th.querySelector(".mk");
+  var d = m && (m.d || knownDur(el._it));
+  if (!m || !d) { if (band) band.remove(); return; }
+  if (!band) { band = document.createElement("div"); band.className = "mk"; th.appendChild(band); }
+  band.style.left = Math.max(0, m.a / d * 100) + "%";
+  band.style.width = Math.max(0, Math.min(100, (m.b - m.a) / d * 100)) + "%";
+}
+
+/* \u00AB Dans ce projet \u00BB : les fichiers de la bibliotheque deja utilises dans
+   le projet Premiere ouvert (badge vert sur la vignette + dossier virtuel
+   en haut de l'arbre). Releve au demarrage, quand le panneau reprend le
+   focus, apres chaque import et chaque minute. */
+var inProject = {};        // chemins (minuscules) des medias du projet ouvert
+var PROJECT = "@project";
+var projTimer = null, projLast = 0;
+
+function isInProject(it) { return !!inProject[it.p.toLowerCase()]; }
+function projectItems() { return all.filter(isInProject); }
+function refreshProject(force) {
+  if (!window.__adobe_cep__) return;
+  if (!force && (document.visibilityState === "hidden" || Date.now() - projLast < 10000)) return;
+  projLast = Date.now();
+  evalScript("mudkitProjectMedia()").then(function (res) {
+    if (typeof res !== "string" || res.indexOf("err:") === 0 || res.indexOf("EvalScript") === 0) return;
+    var next = {}, k, same = true;
+    res.split("\n").forEach(function (p) { if (p) next[p.toLowerCase()] = 1; });
+    for (k in next) if (!inProject[k]) { same = false; break; }
+    if (same) for (k in inProject) if (!next[k]) { same = false; break; }
+    if (same) return;
+    inProject = next;
+    vtiles.forEach(function (el) { el.classList.toggle("inproj", isInProject(el._it)); });
+    renderTree();
+    if (sel === PROJECT) redraw(true, true);
+  });
+}
+function refreshProjectSoon() {
+  clearTimeout(projTimer);
+  projTimer = setTimeout(function () { refreshProject(true); }, 1200);
+}
+
+function pushRecents(paths) {
+  paths.forEach(function (p) {
+    var low = p.toLowerCase();
+    recents = recents.filter(function (x) { return x.toLowerCase() !== low; });
+    recents.unshift(p);
+  });
+  if (recents.length > RECENTS_MAX) recents.length = RECENTS_MAX;
+  lsSet("mudkit.lib.recents", JSON.stringify(recents));
+  renderTree();
+}
+
+/* Plusieurs fichiers poses a la suite, dans l'ordre de la grille. */
+function doImportMany(items) {
+  var bin = libs[items[0].lib] ? base(libs[items[0].lib].root) : "Mudkit";
+  var arr = "[" + items.map(function (it) { return "[" + esStr(it.p) + "," + markArgs(it) + "]"; }).join(",") + "]";
+  say("Import de " + items.length + " fichiers...");
+  pushRecents(items.map(function (it) { return it.p; }).reverse());
+  evalScript("mudkitLibImportMany(" + arr + "," + esStr(action) + "," + esStr(bin) + ")")
+    .then(function (res) {
+      res = String(res);
+      if (res.indexOf("err:") === 0) return say("Import echoue : " + res.slice(4), "err");
+      var p = res.split("|"), ok = +p[0], total = +p[1];
+      var where = action === "bin" ? "dans le chutier " + bin
+                : p[2] ? "dans le chutier (aucune sequence active)" : "poses a la suite sur la timeline";
+      if (ok === total) say(CHECK + " " + ok + " fichiers " + where, "ok");
+      else say(ok + "/" + total + " fichiers " + where + (p[3] ? " - " + p[3] : ""), "err");
+      refreshProjectSoon();
+    });
 }
 
 /* --------------------------------- import ------------------------------ */
@@ -1327,12 +1531,18 @@ function esStr(v) {
 }
 
 function doImport(it) {
+  if (selSet[it.p] && selCount() > 1) return doImportMany(selectedItems());
   var bin = libs[it.lib] ? base(libs[it.lib].root) : "Mudkit";
   say("Import de " + it.n + "...");
   pushRecent(it.p);
-  evalScript("mudkitLibImport(" + esStr(it.p) + "," + esStr(action) + "," + esStr(bin) + ")")
+  evalScript("mudkitLibImport(" + esStr(it.p) + "," + esStr(action) + "," + esStr(bin) + "," + markArgs(it) + ")")
     .then(function (res) {
-      if (res === "inserted") say(CHECK + " " + it.n + " pose sur la timeline", "ok");
+      if (res && res.indexOf("inserted") === 0 || res && res.indexOf("imported") === 0) refreshProjectSoon();
+      var m = marks[it.p], part = m ? " (passage " + fineClock(m.a) + " > " + fineClock(m.b) + ")" : "";
+      if (res === "inserted_sub") say(CHECK + " " + it.n + part + " pose sur la timeline", "ok");
+      else if (res === "imported_sub") say(CHECK + " " + it.n + part + " dans le chutier " + bin, "ok");
+      else if (res === "inserted_nosub" || res === "imported_nosub") say("Pose en entier : Premiere a refuse le passage.", "err");
+      else if (res === "inserted") say(CHECK + " " + it.n + " pose sur la timeline", "ok");
       else if (res === "imported") say(CHECK + " " + it.n + " dans le chutier " + bin, "ok");
       else if (res === "imported_no_seq") say(CHECK + " Importe (aucune sequence active)", "ok");
       else if (res === "mogrt_needs_sequence") say("Un MOGRT exige une sequence active.", "err");
@@ -1557,6 +1767,7 @@ $("#pplay").addEventListener("click", togglePlay);
 $("#pprev").addEventListener("click", prev);
 $("#pnext").addEventListener("click", function () { step(1); });
 $("#pclose").addEventListener("click", stopAudio);
+$("#pmarks").addEventListener("click", function () { clearMarks(cur); });
 $("#prep").addEventListener("click", function () {
   setRepeat(REPEAT[(REPEAT.indexOf(repeat) + 1) % REPEAT.length]);
   say(REPEAT_TIP[repeat], "ok");
@@ -1616,10 +1827,21 @@ document.addEventListener("keydown", function (e) {
   if (e.key === "Escape") {
     if ($("#dloverlay").classList.contains("on")) return $("#dloverlay").classList.remove("on");
     if ($("#viewer").classList.contains("on")) return closeViewer();
+    if (clearMultiSel()) return;
     return pauseAudio();
   }
   var t = e.target, tag = t && t.tagName;
   if (tag === "TEXTAREA" || (tag === "INPUT" && t.type === "text")) return;
+  if ($("#dloverlay").classList.contains("on")) return;
+  // I / O : points d'entree / sortie, aussi dans la visionneuse video
+  if (!e.ctrlKey && !e.altKey && !e.metaKey && /^[ioIO]$/.test(e.key)) {
+    e.preventDefault();
+    return setMark(e.key.toLowerCase() === "i" ? "in" : "out");
+  }
+  if ((e.ctrlKey || e.metaKey) && /^[aA]$/.test(e.key) && !$("#viewer").classList.contains("on")) {
+    e.preventDefault();
+    return selectAllInView();
+  }
   if ($("#dloverlay").classList.contains("on") || $("#viewer").classList.contains("on")) return;
   if (e.key === " " || e.key === "Spacebar") { e.preventDefault(); togglePlay(); }
   // fleches : -5 s / +5 s, y compris sur la barre de position (sinon elle
@@ -1633,7 +1855,8 @@ document.addEventListener("keydown", function (e) {
    Windows : 32 Espace, 37 gauche, 39 droite. */
 try {
   if (window.__adobe_cep__ && window.__adobe_cep__.registerKeyEventsInterest)
-    window.__adobe_cep__.registerKeyEventsInterest(JSON.stringify([{ keyCode:32 }, { keyCode:37 }, { keyCode:39 }]));
+    window.__adobe_cep__.registerKeyEventsInterest(JSON.stringify([{ keyCode:32 }, { keyCode:37 }, { keyCode:39 },
+                                                                   { keyCode:73 }, { keyCode:79 }, { keyCode:65, ctrlKey:true }]));
 } catch (e) {}
 
 /* -------------------------------- demarrage ---------------------------- */
@@ -1650,6 +1873,11 @@ if (!nodeReq) {
   if (sel && sel !== RECENTS && sel.indexOf(MISSING) !== 0 && !isNodeKey(sel)) sel = "";
   Object.keys(open).forEach(function (k) { if (!isNodeKey(k)) delete open[k]; });
   try { recents = JSON.parse(ls("mudkit.lib.recents", "[]")) || []; } catch (e) { recents = []; }
+  try { marks = JSON.parse(ls("mudkit.lib.marks", "{}")) || {}; } catch (e) { marks = {}; }
+  setTimeout(function () { refreshProject(true); }, 3000);
+  setInterval(refreshProject, 60000);
+  window.addEventListener("focus", function () { refreshProject(); });
+  window.addEventListener("mudkit-imported", refreshProjectSoon);   // telechargement importe
   action = ls("mudkit.lib.action", "insert");
   favOnly = ls("mudkit.lib.favonly", "0") === "1";
   tileW = +ls("mudkit.lib.tilew", "116") || 116;
