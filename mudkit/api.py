@@ -115,13 +115,16 @@ class Api:
             "ytdlp": self._ytdlp_version(),
             "theme": cfg.get("theme", "light"),
             "page": cfg.get("page", "dl"),
+            "ui": cfg.get("ui") or {},  # derniers reglages de chaque outil
             "cookies_browser": downloader.cookies_browser(),
             "cookies_file": os.path.isfile(downloader.COOKIES_FILE),
         }
 
     def set_pref(self, key, value):
         """Memorise une preference d'interface (theme, dernier outil...)."""
-        if key not in ("theme", "page", "cookies_browser"):
+        if key not in ("theme", "page", "cookies_browser", "ui"):
+            return False
+        if key == "ui" and not isinstance(value, dict):
             return False
         utils.update_config(**{key: value})
         return True

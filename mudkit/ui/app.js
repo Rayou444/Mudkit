@@ -11,13 +11,22 @@ const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
 
 /* ---------------- pont vers Python (ou simulation navigateur) ------- */
 
+/* Simulation (apercu dans un navigateur) SEULEMENT hors de Mudkit : page
+   ouverte comme fichier, ou adresse avec ?apercu. Avant, elle se
+   declenchait des que pywebview tardait 600 ms : sur un PC lent, toute la
+   session passait en simulation, avec de faux « Téléchargement terminé ». */
+const PREVIEW = location.protocol === "file:" || /[?&]apercu\b/.test(location.search);
 let MOCK = false;
 const apiReady = new Promise((resolve) => {
   if (window.pywebview) return resolve();
   window.addEventListener("pywebviewready", resolve, { once: true });
   setTimeout(() => {
-    if (!window.pywebview) { MOCK = true; resolve(); }
+    if (!window.pywebview && PREVIEW) { MOCK = true; resolve(); }
   }, 600);
+  setTimeout(() => {
+    if (!window.pywebview && !PREVIEW)
+      toast("Le moteur de Mudkit ne répond pas. Ferme puis relance Mudkit.", "err", 60000);
+  }, 15000);
 });
 
 /* Un appel qui echoue (exception Python, methode absente) ne doit jamais
@@ -96,6 +105,9 @@ function toast(msg, kind = "info", ms = 4200, action = null) {
     ms = Math.max(ms, 9000);
   }
   $("#toasts").appendChild(t);
+  // 3 a la fois au plus : 40 fichiers en erreur empilaient 40 messages
+  const all = $("#toasts").children;
+  while (all.length > 3) all[0].remove();
   setTimeout(() => {
     t.classList.add("out");
     setTimeout(() => t.remove(), 260);
@@ -263,7 +275,9 @@ document.addEventListener("keydown", async (e) => {
 /* ---------------- thème clair / sombre (mémorisé côté Python) --------- */
 
 function applyThemePref(theme) {  // clair (creme) par defaut
-  document.documentElement.dataset.theme = theme === "dark" ? "dark" : "light";
+  const t = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem("mudkit.theme", t); } catch { /* sans stockage */ }
 }
 
 function wireTheme(st) {
@@ -425,11 +439,12 @@ function wireDownloader(st) {
   $("#dl-dest").textContent = st.download_dir;
   $("#dl-dest").title = st.download_dir;
 
-  wirePills("#pills-quality", (v) => (S.dl.quality = v));
-  wirePills("#pills-vformat", (v) => (S.dl.vformat = v));
-  wirePills("#pills-aformat", (v) => (S.dl.aformat = v));
+  wirePills("#pills-quality", (v) => { S.dl.quality = v; savePrefs(); });
+  wirePills("#pills-vformat", (v) => { S.dl.vformat = v; savePrefs(); });
+  wirePills("#pills-aformat", (v) => { S.dl.aformat = v; savePrefs(); });
   wirePills("#seg-mode", (v) => {
     S.dl.mode = v;
+    savePrefs();
     $("#dl-video-opts").classList.toggle("hidden", v !== "video");
     $("#dl-audio-opts").classList.toggle("hidden", v !== "audio");
   });
@@ -585,9 +600,10 @@ function onDlEvent(e) {
     if (!row) return;
     const bar = row.querySelector(".fbar");
     bar.classList.remove("hidden");
-    if (e.phase === "processing") {
+    if (e.phase === "processing" || e.phase === "section") {
       bar.classList.add("indet");
-      row.querySelector(".qstats").textContent = " · fusion / conversion…";
+      row.querySelector(".qstats").textContent = e.phase === "section"
+        ? " · téléchargement du passage…" : " · fusion / conversion…";
       return;
     }
     bar.classList.remove("indet");
@@ -854,6 +870,7 @@ function wireCompressor() {
 
   wirePills("#cp-targets", (v) => {
     S.cp.target = +v;
+    savePrefs();
     $("#cp-custom").value = "";
   });
   $("#cp-custom").addEventListener("input", () => {
@@ -962,6 +979,7 @@ function renderModels(st) {
     box.querySelectorAll(".model").forEach((b) => b.classList.remove("on"));
     btn.classList.add("on");
     S.up.model = btn.dataset.v;
+    savePrefs();
   };
 }
 
@@ -1024,8 +1042,12 @@ async function upStage() {
   $("#up-stage-name").textContent = f.name;
 
   const out = S.up.results[f.path];
+  // apres chaque attente, on verifie que ce fichier est TOUJOURS celui
+  // selectionne : sinon un gros PNG lent a charger s'affichait sous le
+  // nom du petit JPG clique entre-temps
   if (out) {
     const [before, after] = await Promise.all([preview(f.path), preview(out)]);
+    if (S.up.sel !== f.path) return;
     $("#cmp-before").src = before || "";
     $("#cmp-after").src = after || "";
     cmp.classList.remove("hidden");
@@ -1033,7 +1055,9 @@ async function upStage() {
     const dims = f.dims ? ` · ${f.dims} → ${scaleDims(f.dims, S.up.scaleUsed)}` : "";
     $("#up-stage-dims").textContent = `x${S.up.scaleUsed}${dims}`;
   } else {
-    img.src = (await preview(f.path)) || "";
+    const src = await preview(f.path);
+    if (S.up.sel !== f.path) return;
+    img.src = src || "";
     img.classList.remove("hidden");
     cmp.classList.add("hidden");
     $("#up-stage-dims").textContent = f.dims || "";
@@ -1062,8 +1086,8 @@ async function upAddPaths(paths) {
 function wireUpscaler() {
   wireDrop($("#up-drop"), "images", upAddPaths);
 
-  wirePills("#pills-scale", (v) => (S.up.scale = +v));
-  wirePills("#pills-upformat", (v) => (S.up.format = v));
+  wirePills("#pills-scale", (v) => { S.up.scale = +v; savePrefs(); });
+  wirePills("#pills-upformat", (v) => { S.up.format = v; savePrefs(); });
 
   $("#btn-pack").addEventListener("click", async (e) => {
     e.target.disabled = true;
@@ -1232,13 +1256,16 @@ async function bgStage() {
   if (out) {
     const [before, after] = await Promise.all(
       [preview(f.path), api("preview_png", out)]);
+    if (S.bg.sel !== f.path) return;
     $("#bg-cmp-before").src = before || "";
     $("#bg-cmp-after").src = after || "";
     cmp.classList.remove("hidden");
     img.classList.add("hidden");
     $("#bg-stage-info").textContent = "PNG transparent · à côté de l'originale";
   } else {
-    img.src = (await preview(f.path)) || "";
+    const src = await preview(f.path);
+    if (S.bg.sel !== f.path) return;
+    img.src = src || "";
     img.classList.remove("hidden");
     cmp.classList.add("hidden");
     $("#bg-stage-info").textContent = f.dims || "";
@@ -1661,7 +1688,7 @@ window.mudkitEvent = (e) => {
       if (!st) return;
       renderEngines(st);
       renderModels(st);
-      if (e.name === "upscayl_models" && e.ok) {
+      if (e.name === "upscayl_models") {   // reussite OU echec : on peut relancer
         const b = $("#btn-pack");
         b.disabled = false;
         b.textContent = "Installer les modèles Upscayl (~110 Mo)";
@@ -1856,6 +1883,43 @@ function mockApi(method, ...args) {
   }
 }
 
+/* ---------------- derniers reglages ---------------- */
+
+/* Chaque outil rouvre avec les derniers reglages choisis (qualite, format,
+   taille cible, echelle, modele) au lieu des valeurs par defaut. */
+let prefsTimer = null;
+function savePrefs() {
+  clearTimeout(prefsTimer);
+  prefsTimer = setTimeout(() => api("set_pref", "ui", {
+    dl_mode: S.dl.mode, dl_quality: S.dl.quality,
+    dl_vformat: S.dl.vformat, dl_aformat: S.dl.aformat,
+    cp_target: S.cp.target,
+    up_scale: S.up.scale, up_format: S.up.format, up_model: S.up.model,
+  }), 400);
+}
+
+function restorePrefs(p) {
+  const pick = (sel, v) => {
+    if (v == null) return false;
+    const b = $(`${sel} button[data-v="${v}"]`);
+    if (!b) return false;
+    $$(`${sel} button`).forEach((x) => x.classList.toggle("on", x === b));
+    return true;
+  };
+  if (pick("#seg-mode", p.dl_mode)) {
+    S.dl.mode = p.dl_mode;
+    $("#dl-video-opts").classList.toggle("hidden", S.dl.mode !== "video");
+    $("#dl-audio-opts").classList.toggle("hidden", S.dl.mode !== "audio");
+  }
+  if (pick("#pills-quality", p.dl_quality)) S.dl.quality = p.dl_quality;
+  if (pick("#pills-vformat", p.dl_vformat)) S.dl.vformat = p.dl_vformat;
+  if (pick("#pills-aformat", p.dl_aformat)) S.dl.aformat = p.dl_aformat;
+  if (pick("#cp-targets", p.cp_target)) S.cp.target = +p.cp_target;
+  if (pick("#pills-scale", p.up_scale)) S.up.scale = +p.up_scale;
+  if (pick("#pills-upformat", p.up_format)) S.up.format = p.up_format;
+  if (p.up_model) S.up.model = p.up_model;   // garde par renderModels s'il est installe
+}
+
 /* ---------------- demarrage ---------------- */
 
 (async function init() {
@@ -1864,6 +1928,7 @@ function mockApi(method, ...args) {
   $("#app-ver").textContent = "v" + st.version;
   wireTheme(st);
   if (st.page && $(`#page-${st.page}`)) go(st.page);
+  restorePrefs(st.ui || {});
   renderEngines(st);
   renderModels(st);
   wireDownloader(st);
