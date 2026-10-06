@@ -76,14 +76,57 @@ exactes du `.venv` (`pip freeze` sert de contraintes).
 | ✨ Upscaler IA | Agrandit les images x2/x3/x4 en local sur ton GPU (Vulkan). 8 modèles dont les 5 du projet [Upscayl](https://github.com/upscayl/upscayl) (Standard, UltraSharp, Remacri, Art numérique, Lite). Comparateur avant/après, sortie png/jpg/webp. |
 | 🔁 Convertisseur | Images (png, jpg, webp, ico...), audio (mp3, flac, wav...) et vidéo (mp4, mkv, webm, gif...), en lot, avec progression réelle. |
 | 🗜 Compresseur | Fait tenir une vidéo sous une taille cible (Discord 10 Mo, WhatsApp 16 Mo, e-mail 25 Mo, 50 Mo ou libre) — encodage x264 deux passes, définition réduite automatiquement si besoin. |
-| ✂ Détourage | Supprime l'arrière-plan (BiRefNet / IS-Net), PNG transparent. Même pipeline que rembg mais en onnxruntime direct (`core/cutout.py`, sortie identique au pixel près) : ~290 Mo de dépendances en moins. Modèles dans `~/.rembg/models`. |
+| ✂ Détourage | Supprime l'arrière-plan, PNG transparent. Choix par sujet : **Personnes & animaux** (BiRefNet matting : cheveux, poils, flou), **Objets & scènes** (BiRefNet général), **Haute définition** (BiRefNet HR, 2048 px, 4x plus lent), **Rapide** (IS-Net). Couleur des bords corrigée, recadrage au sujet en option, carte graphique (DirectML) si dispo. Détails plus bas. |
 
 Le téléchargeur garde un **historique** (`%LOCALAPPDATA%\Mudkit\history.json`)
 et ne saute plus une vidéo dont le titre existe déjà : « titre (2) ». Une
 **playlist** est rangée dans son propre sous-dossier, au nom de la playlist.
 
-Le téléchargeur permet aussi de ne prendre qu'un **passage** d'une vidéo
-(slider début/fin après analyse) : seul le morceau choisi est téléchargé.
+Le téléchargeur permet aussi de ne prendre qu'un **passage** d'une vidéo :
+cocher la case après l'analyse ouvre un **aperçu** de la vidéo (lecteur
+`mudkit/ui/player.js`) pour poser le début et la fin sur la barre, avec les
+touches `I` / `O`, ou en tapant les temps (`1:23.5`). Seul le morceau choisi
+est téléchargé.
+
+- L'aperçu lit directement le flux du site : `downloader.preview_streams`
+  choisit un format en un seul fichier http(s) (pas de m3u8 / DASH, ni
+  cookies requis), en 360-480p, H.264 de préférence. YouTube sépare l'image
+  et le son : le lecteur joue les deux, le son calé sur l'image. La planche
+  de vignettes YouTube (format `sb`) donne l'image au survol de la barre.
+- Les cookies du navigateur ne servent que si le lien demande d'être
+  connecté (`with_cookie_fallback` essaie d'abord sans) : les lire était
+  lent et échouait souvent (Brave, Chrome, Edge ouverts).
+- Un lien « vidéo + playlist » (copié pendant un Mix YouTube) est analysé
+  comme la vidéo seule (~2 s au lieu de ~20 s) ; « Toute la playlist » reste
+  proposée pour une vraie playlist, jamais pour un Mix.
+
+### Détourage (`core/cutout.py`, `core/cutout_worker.py`)
+
+- Modèles ONNX (licence MIT) téléchargés au premier usage dans
+  `~/.rembg/models/<nom>/` (emplacement de rembg, ceux déjà présents servent) :
+  `birefnet-matting` (930 Mo), `birefnet-general` (930 Mo),
+  `birefnet-hr-general` (1 Go, entrée 2048 px), `isnet-general-use` (180 Mo).
+  Testés sur portrait, animal, voiture et scène à plusieurs objets : le
+  matting est de loin le meilleur sur les cheveux (les trous entre les
+  mèches deviennent transparents) mais rate les scènes à plusieurs objets
+  et rend les vitres translucides, d'où le choix par sujet.
+- Après le modèle : alpha agrandi en Lanczos, voile < 1,5/255 retiré, puis
+  **couleur du premier plan** estimée là où l'alpha est partiel (« blur
+  fusion », Forte & Pitié 2021, comme `refine_foreground` de BiRefNet) : passe
+  large en basse définition, passe fine par bandes autour des bords seulement
+  (mémoire bornée même sur 50 Mpx). Plus de liseré de l'ancien fond.
+- Inférence dans un **processus à part** (`python -m mudkit.core.cutout_worker
+  <json>`, une ligne JSON par événement) : annuler le tue aussitôt
+  (`utils.kill_tree`), la mémoire du modèle est rendue, et un souci de
+  pilote ne fait pas tomber l'appli.
+- **Carte graphique** : `onnxruntime-directml` (roue Microsoft de PyPI, sha256
+  vérifié, 25 Mo) téléchargé une fois dans
+  `%LOCALAPPDATA%\Mudkit\onnxruntime-dml\`, placé devant le onnxruntime du runtime dans le seul
+  processus de détourage. Adaptateur « haute performance » (sinon DirectML
+  prenait l'écran virtuel Parsec). Mesuré sur RTX 5070 Ti, BiRefNet 1024 :
+  ~2 s par image au lieu de ~10 s au processeur. Le modèle HD échoue en
+  DirectML (mémoire) : toujours au processeur. Tout échec sur la carte
+  graphique bascule le modèle sur le processeur.
 
 Les binaires (ffmpeg, Real-ESRGAN) sont embarqués dans `bin/` : s'il en
 manque un, l'accueil propose de l'installer en un clic.
@@ -134,6 +177,19 @@ Composer (arborescence à gauche, grille à droite), sans limite d'éléments :
   file ffmpeg et s'écrit dans un `.part.mp3` renommé à la fin, pour ne jamais
   mettre en cache un mp3 tronqué.
 - **Pas de filtre par type** : retiré à la demande, l'arbre suffit à cadrer.
+- **Visionneuse vidéo** : lecteur `player.js` (partagé avec l'appli, copie
+  identique dans `premiere_ext/src/player.js` recopiée par `deployer.ps1`,
+  vérifiée par `node premiere_ext/tests/player.test.js`). Barre de temps avec
+  image au survol (le sprite de la vignette), passage In / Out posé sur la
+  barre (mêmes `marks` que les touches I / O), temps tapables, image par
+  image (`←` / `→`, `Maj` = 1 s), `J` / `K` / `L`, vitesse, boucle, volume
+  commun avec le lecteur de sons, infos (définition, cadence, codec). Un
+  codec que Chromium ne lit pas (ProRes, DNxHD, HEVC, AVI, MXF...) est
+  converti une fois en aperçu 540p H.264 (`lib-cache\px`, ~8x temps réel
+  sur du ProRes 4K) avec sa progression.
+- **Fenêtre de téléchargement** : « Passage seulement » analyse le lien
+  (`premiere_dl.py --info`) et ouvre le même lecteur sur le flux du site pour
+  poser début et fin ; les deux champs de temps restent en secours.
 - **La visionneuse se ferme en cliquant dans le vide** autour du média, sans
   passer par la croix. Le test `ev.target === this` sur `.vbody` garantit qu'on
   ne ferme que sur le fond : un clic sur la vidéo ou sur ses contrôles de

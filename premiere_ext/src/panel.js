@@ -191,6 +191,7 @@ var cut = { player: null, url: "", proc: null, info: null };
 
 function cutMsg(t) { $("#cutmsg").textContent = t || ""; }
 function cutStop() {
+  clearTimeout(cut.retry);
   if (cut.proc) { killTree(cut.proc); cut.proc = null; }
   if (cut.player) { cut.player.destroy(); cut.player = null; }
   cut.url = ""; cut.info = null;
@@ -211,9 +212,16 @@ function cutAnalyze() {
   if (!url) { cutStop(); return cutManual("Colle un lien : l'aperçu de la vidéo apparaîtra ici."); }
   if (url === cut.url) return;
   cutStop();
-  cut.url = url;
   $("#cutrow").classList.add("hidden");
   if (!nodeReq) return cutManual("");
+  if (ytdlpBusy) {
+    // yt-dlp en cours de remplacement : on analysera juste apres
+    cutMsg("yt-dlp se met à jour, l'aperçu arrive dans quelques secondes…");
+    clearTimeout(cut.retry);
+    cut.retry = setTimeout(cutAnalyze, 2500);
+    return;
+  }
+  cut.url = url;
   cutMsg("Analyse du lien pour l'aperçu…");
   var p;
   try { p = nodeReq("child_process").spawn(PY, ["-E", "-s", "-X", "utf8", "-u", SCRIPT, "--info", url], { windowsHide: true }); }

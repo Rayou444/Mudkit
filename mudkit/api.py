@@ -437,6 +437,11 @@ class Api:
     # ------------------------------------------------------- telechargeur
 
     def analyze_url(self, url):
+        # pip remplace yt-dlp (mise a jour du jour) : on attend la fin plutot
+        # que de charger un melange des deux versions
+        t0 = time.monotonic()
+        while "update_ytdlp" in self._busy and time.monotonic() - t0 < 120:
+            time.sleep(0.5)
         try:
             return {"ok": True, "info": downloader.analyze(url)}
         except Exception as e:  # noqa: BLE001
