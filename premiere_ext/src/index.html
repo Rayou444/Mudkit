@@ -124,6 +124,7 @@
   .node.sel .fic, .node:hover .fic { color:var(--text); }
   .node .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
   .node .ct { flex:0 0 auto; font-size:9.5px; color:var(--faint); }
+  .node.off { opacity:.5; }             /* dossier introuvable (disque debranche) */
 
   .split { flex:0 0 auto; width:1px; cursor:col-resize; background:var(--line); position:relative; }
   .split::after { content:""; position:absolute; left:-2px; right:-2px; top:0; bottom:0; }
@@ -132,11 +133,22 @@
   .content { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
 
   /* -------------------------------- grille ------------------------------ */
-  #grid {
-    flex:1 1 auto; min-height:0; overflow:auto; padding:8px;
-    display:grid; grid-template-columns:repeat(auto-fill, minmax(var(--tw), 1fr));
-    gap:9px 8px; align-content:start;
+  /* Grille virtuelle (library.js) : les tuiles visibles seulement, placees
+     en absolu dans .vbox, aussi haute que la grille entiere. Marges et
+     ecarts geres en JS (PAD, GAP_X, GAP_Y). */
+  #grid { flex:1 1 auto; min-height:0; overflow:auto; position:relative; }
+  .vbox { position:relative; }
+  .vbox .tile { position:absolute; }
+
+  /* filtre par duree */
+  .durbar { flex:0 0 auto; display:flex; flex-wrap:wrap; gap:4px; padding:6px 8px 2px; }
+  .durbar button {
+    font:inherit; font-size:10px; color:var(--dim); background:var(--input);
+    border:1px solid var(--line); border-radius:10px; padding:1px 8px; cursor:pointer;
+    white-space:nowrap;
   }
+  .durbar button:hover { color:var(--text); }
+  .durbar button.on { color:#FFF; background:var(--accent); border-color:var(--accent); }
 
   .tile { position:relative; cursor:grab; }
   .tile:active { cursor:grabbing; }
@@ -191,7 +203,6 @@
   .meta .fav:hover { color:var(--star); }
   .meta .fav.on { color:var(--star); }
 
-  #more { grid-column:1/-1; text-align:center; color:var(--faint); font-size:10.5px; padding:8px; }
   .empty {
     grid-column:1/-1; padding:30px 16px; text-align:center;
     color:var(--faint); font-size:11px; line-height:1.7;
@@ -373,6 +384,13 @@
   </div>
   <div class="split" id="split"></div>
   <div class="content">
+    <div class="durbar" id="durbar" title="Sons et vidéos selon leur durée (mesurée une fois, puis gardée)">
+      <button data-v="" class="on">Toutes durées</button>
+      <button data-v="lt1">&lt; 1 s</button>
+      <button data-v="s1_5">1 à 5 s</button>
+      <button data-v="s5_30">5 à 30 s</button>
+      <button data-v="gt30">&gt; 30 s</button>
+    </div>
     <div id="grid"></div>
   </div>
 </div>
@@ -417,7 +435,7 @@
     </h2>
 
     <label class="t">Lien</label>
-    <input id="url" type="text" spellcheck="false" placeholder="Colle un lien — YouTube, TikTok…">
+    <input id="url" type="text" spellcheck="false" placeholder="Colle un lien : YouTube, TikTok…">
 
     <label class="t">Format</label>
     <div class="seg" id="seg">
@@ -449,8 +467,7 @@
     <div class="bar-pg hidden" id="bar"><i></i></div>
     <div id="status"></div>
 
-    <div class="foot">Fichiers dans Vidéos\Mudkit\Premiere ·
-      <a id="upd" href="#">MàJ yt-dlp</a></div>
+    <div class="foot">Fichiers dans Vidéos\Mudkit\Premiere · yt-dlp se met à jour tout seul</div>
   </div>
 </div>
 

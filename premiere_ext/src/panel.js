@@ -1,4 +1,4 @@
-/* Panneau Mudkit pour Premiere Pro — telechargement via le moteur Mudkit. */
+/* Panneau Mudkit pour Premiere Pro : telechargement via le moteur Mudkit. */
 "use strict";
 
 var nodeReq = (window.cep_node && window.cep_node.require)
@@ -98,6 +98,15 @@ function evalScript(script) {
   });
 }
 
+/* Chaine pour ExtendScript (ES3) : tout le non-ASCII echappe. JSON.stringify
+   laisse passer U+2028 / U+2029, fins de ligne en ES3 : un titre YouTube qui
+   en contenait faisait echouer l'import. */
+function esStr(v) {
+  return JSON.stringify(String(v)).replace(/[^\x00-\x7e]/g, function (c) {
+    return "\\u" + ("000" + c.charCodeAt(0).toString(16)).slice(-4);
+  });
+}
+
 function status(msg, cls) {
   var el = $("#status");
   el.textContent = msg;
@@ -138,28 +147,6 @@ $("#cut").addEventListener("change", function (e) {
   $("#cutrow").classList.toggle("hidden", !e.target.checked);
 });
 
-$("#upd").addEventListener("click", function (e) {
-  e.preventDefault();
-  if (!nodeReq || proc) return;
-  var spawn = nodeReq("child_process").spawn;
-  status("Mise à jour de yt-dlp…");
-  var code = "import sys; sys.path.insert(0, " + JSON.stringify(MUDKIT) + "); " +
-    "from mudkit import dnsfix; dnsfix.activate_if_needed(); " +
-    "sys.argv = ['pip', 'install', '-q', '-U', 'yt-dlp']; " +
-    "from pip._internal.cli.main import main; sys.exit(main())";
-  var p = spawn(PY, ["-E", "-s", "-c", code], { windowsHide: true });
-  var err = "";
-  p.stderr.on("data", function (c) { err = (err + c.toString("utf8")).slice(-4000); });
-  p.on("error", function () { status(ENGINE_MISSING, "err"); });
-  p.on("exit", function (c) {
-    if (c === null) return;  // deja signale par "error"
-    status(c === 0 ? "yt-dlp à jour OK"
-                   : "Échec de la mise à jour de yt-dlp" +
-                     (lastLine(err) ? " : " + lastLine(err) : ""),
-           c === 0 ? "ok" : "err");
-  });
-});
-
 /* Le moteur (Python de Mudkit) manque : spawn emet "error" (ENOENT). */
 var ENGINE_MISSING = "Moteur Mudkit introuvable dans " + MUDKIT +
   " : installe ou répare Mudkit (INSTALLER Mudkit.bat).";
@@ -171,12 +158,23 @@ function lastLine(txt) {
   return lines.length ? lines[lines.length - 1].slice(0, 240) : "";
 }
 
+function killTree(p) {
+  try {
+    nodeReq("child_process").spawn("taskkill", ["/PID", String(p.pid), "/T", "/F"],
+                                   { windowsHide: true });
+  } catch (e) {
+    try { p.kill(); } catch (e2) {}
+  }
+}
+
 $("#url").addEventListener("keydown", function (e) {
   if (e.key === "Enter") $("#go").click();
 });
 
 $("#cancel").addEventListener("click", function () {
-  if (proc) { try { proc.kill(); } catch (e) {} }
+  // tout l'arbre : tuer Python seul laissait tourner le ffmpeg lance par
+  // yt-dlp (fusion, extrait) a 100 % du processeur
+  if (proc) killTree(proc);
   status("Annulé.");
   running(false);
 });
@@ -185,9 +183,11 @@ $("#go").addEventListener("click", function () {
   var url = $("#url").value.trim();
   if (!url) return status("Colle d'abord un lien.", "err");
   if (!nodeReq) return status("Node est désactivé dans ce panneau (CEP).", "err");
+  if (ytdlpBusy)
+    return status("yt-dlp se met à jour, réessaie dans quelques secondes.", "err");
 
   // -E -s : ignore un eventuel Python perso (PYTHONPATH, site utilisateur)
-  var args = ["-E", "-s", "-u", SCRIPT, url, mode];
+  var args = ["-E", "-s", "-X", "utf8", "-u", SCRIPT, url, mode];
   if ($("#cut").checked) {
     var tin = parseTime($("#t-in").value) || 0;
     var tout = parseTime($("#t-out").value);
@@ -287,7 +287,7 @@ function runUpdater(cmd, onLine, onEnd) {
   var spawn = nodeReq("child_process").spawn, p, buf = "", got = false, ended = false;
   function end() { if (!ended) { ended = true; onEnd(got); } }
   try {
-    p = spawn(PY, ["-E", "-s", "-m", "mudkit.updater", cmd],
+    p = spawn(PY, ["-E", "-s", "-X", "utf8", "-m", "mudkit.updater", cmd],
               { cwd: MUDKIT, windowsHide: true });
   } catch (e) { return end(); }
   p.stdout.on("data", function (c) {
@@ -374,6 +374,21 @@ $("#updpill").addEventListener("click", function () {
   }
 });
 
+/* yt-dlp a jour tout seul : `python -m mudkit.updater ytdlp` ne fait rien
+   s'il a deja ete mis a jour dans les 24 h (par l'appli ou le panneau), ni
+   sur le PC de dev. Jamais pendant un telechargement. */
+var ytdlpBusy = false;
+function ytdlpAuto() {
+  if (!nodeReq || proc || ytdlpBusy || upd.state === "running") return;
+  ytdlpBusy = true;
+  runUpdater("ytdlp", function () {}, function () { ytdlpBusy = false; });
+}
+
+if (nodeReq) {
+  setTimeout(ytdlpAuto, 30 * 1000);
+  setInterval(ytdlpAuto, UPD_EVERY);
+}
+
 if (nodeReq && loadedVersion) {
   setTimeout(checkUpdate, 5000);
   setInterval(checkUpdate, UPD_EVERY);
@@ -398,7 +413,12 @@ function onMessage(msg) {
   if (msg.transcode_start) {
     $("#bar").classList.remove("indet");
     $("#bar i").style.width = "0%";
-    return status("Codec non lisible par Premiere — conversion en H.264…");
+    return status("Codec non lisible par Premiere : conversion en H.264…");
+  }
+  if ("pct" in msg && msg.pct == null) {
+    $("#bar").classList.add("indet");
+    return status(msg.transcode ? "Conversion pour Premiere…"
+                                : "Téléchargement…" + (msg.speed ? " · " + msg.speed : ""));
   }
   if (msg.pct != null) {
     $("#bar").classList.remove("indet");
@@ -412,13 +432,13 @@ function onMessage(msg) {
   if (msg.done) {
     $("#bar").classList.add("indet");
     status("Import dans Premiere…");
-    evalScript("mudkitImport(" + JSON.stringify(msg.path) + ", \"" +
-               action + "\")").then(function (res) {
+    evalScript("mudkitImport(" + esStr(msg.path) + ", " + esStr(action) + ")")
+      .then(function (res) {
       running(false);
       if (res === "inserted")
-        status("OK " + msg.title + " — importé et posé sur la timeline", "ok");
+        status("OK " + msg.title + " : importé et posé sur la timeline", "ok");
       else if (res === "imported")
-        status("OK " + msg.title + " — dans le chutier Mudkit", "ok");
+        status("OK " + msg.title + " : dans le chutier Mudkit", "ok");
       else if (res === "imported_no_seq")
         status("OK Importé dans le chutier Mudkit (aucune séquence active " +
                "pour l'insertion)", "ok");

@@ -3,6 +3,11 @@
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
+/* Tout texte venu de dehors (message d'erreur de yt-dlp, nom de fichier)
+   passe par esc() avant d'entrer dans du HTML : un guillemet dans un
+   message pouvait sinon injecter du code, avec acces a toute l'API. */
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
 /* ---------------- pont vers Python (ou simulation navigateur) ------- */
 
@@ -231,6 +236,7 @@ document.addEventListener("keydown", async (e) => {
   if (page === "page-dl") {
     try {
       const txt = ((await navigator.clipboard.readText()) || "").trim();
+      if (queueManyUrls(txt)) return;
       if (/^https?:\/\//i.test(txt)) {
         $("#dl-url").value = txt;
         toast("Lien collé. Entrée pour l'analyser, ou clique sur Télécharger.");
@@ -377,7 +383,7 @@ function qRender() {
     } else if (it.status === "cancelled") {
       st.innerHTML = `<span class="st-wait">annulé</span>`;
     } else {
-      st.innerHTML = `<span class="st-err" title="${it.error || ""}">✕</span>`;
+      st.innerHTML = `<span class="st-err" title="${esc(it.error)}">✕</span>`;
     }
     del.addEventListener("click", () => {
       if (it.status === "running") return;
@@ -431,6 +437,7 @@ function wireDownloader(st) {
   $("#btn-paste").addEventListener("click", async () => {
     try {
       const txt = await navigator.clipboard.readText();
+      if (queueManyUrls(txt)) return;
       if (txt) $("#dl-url").value = txt.trim();
     } catch {
       toast("Presse-papiers illisible, colle avec Ctrl+V.", "err");
@@ -439,6 +446,15 @@ function wireDownloader(st) {
 
   $("#dl-url").addEventListener("keydown", (e) => {
     if (e.key === "Enter") analyze();
+  });
+  /* Nouveau lien = on oublie la case Playlist de l'analyse precedente :
+     restee cochee, elle faisait partir tout un Mix YouTube. */
+  $("#dl-url").addEventListener("input", () => {
+    const known = S.dl.lastInfo && S.dl.lastInfo.url === $("#dl-url").value.trim();
+    if (!known) {
+      $("#dl-playlist").checked = false;
+      $("#dl-playlist-row").classList.add("hidden");
+    }
   });
   $("#btn-analyze").addEventListener("click", analyze);
 
@@ -504,6 +520,7 @@ function wireDownloader(st) {
   $("#btn-dl").addEventListener("click", () => {
     const url = $("#dl-url").value.trim();
     if (!url) return toast("Colle d'abord un lien.", "err");
+    if (queueManyUrls(url)) return;
     const known = S.dl.lastInfo && S.dl.lastInfo.url === url
       ? S.dl.lastInfo : null;
     const sec = S.dl.sec;
@@ -517,7 +534,8 @@ function wireDownloader(st) {
         mode: S.dl.mode,
         quality: S.dl.quality,
         format: S.dl.mode === "video" ? S.dl.vformat : S.dl.aformat,
-        playlist: $("#dl-playlist").checked,
+        // la case ne vaut que pour le lien qui vient d'etre analyse
+        playlist: known ? $("#dl-playlist").checked : false,
         section: useSec ? { start: sec.a, end: sec.b } : undefined,
       },
     });
@@ -529,6 +547,34 @@ function wireDownloader(st) {
     api("cancel", "download");
     toast("Annulation du téléchargement en cours…");
   });
+}
+
+/* Plusieurs liens colles d'un coup (un par ligne, ou separes par des
+   espaces) : tous en file avec les reglages actuels, sans analyse. Renvoie
+   false s'il n'y a qu'un lien (cas normal : analyse puis Telecharger). */
+function extractUrls(txt) {
+  return String(txt || "").match(
+    /https?:\/\/[^\s"'<>]+?(?=https?:\/\/|[\s"'<>]|$)/gi) || [];
+}
+function queueManyUrls(txt) {
+  const urls = [...new Set(extractUrls(txt))];
+  if (urls.length < 2) return false;
+  for (const url of urls) {
+    S.dl.queue.push({
+      id: ++qSeq, url, status: "pending", title: null, thumb: null,
+      opts: {
+        mode: S.dl.mode,
+        quality: S.dl.quality,
+        format: S.dl.mode === "video" ? S.dl.vformat : S.dl.aformat,
+        playlist: false,
+      },
+    });
+  }
+  $("#dl-url").value = "";
+  qRender();
+  qPump();
+  toast(`${urls.length} liens ajoutés à la file.`, "ok");
+  return true;
 }
 
 function onDlEvent(e) {
@@ -863,7 +909,7 @@ function onCpEvent(e) {
       st.querySelector("[data-reveal]").addEventListener("click", (ev) =>
         api("reveal_file", ev.target.dataset.reveal));
     } else {
-      st.innerHTML = `<span class="st-err" title="${e.error || ""}">✕</span>`;
+      st.innerHTML = `<span class="st-err" title="${esc(e.error)}">✕</span>`;
       if (e.error) toast(e.error, "err", 7000);
     }
   } else if (e.type === "cp_done") {
@@ -928,7 +974,7 @@ function upChips() {
     c.innerHTML = `
       <img alt="">
       <div class="fmeta">
-        <div class="fname">${f.name}</div>
+        <div class="fname">${esc(f.name)}</div>
         <div class="fsub">${f.size}${f.dims ? " · " + f.dims : ""}</div>
       </div>
       <span class="fstate"></span>
@@ -1090,7 +1136,7 @@ function onUpEvent(e) {
       }
     } else {
       chips[e.index].querySelector(".fstate").innerHTML =
-        `<span class="st-err" title="${e.error || ""}">✕</span>`;
+        `<span class="st-err" title="${esc(e.error)}">✕</span>`;
       if (e.error) toast(e.error, "err", 7000);
     }
   } else if (e.type === "up_done") {
@@ -1264,7 +1310,7 @@ function onBgEvent(e) {
       }
     } else {
       chips[e.index].querySelector(".fstate").innerHTML =
-        `<span class="st-err" title="${e.error || ""}">✕</span>`;
+        `<span class="st-err" title="${esc(e.error)}">✕</span>`;
       if (e.error) toast(e.error, "err", 7000);
     }
   } else if (e.type === "bg_done") {
@@ -1296,7 +1342,7 @@ function cvRows() {
     row.innerHTML = `
       <div class="fico">${ext}</div>
       <div class="fmain">
-        <div class="fname">${f.name}</div>
+        <div class="fname">${esc(f.name)}</div>
         <div class="fsub">${f.size}</div>
         <div class="bar fbar hidden"><i></i></div>
       </div>
@@ -1399,7 +1445,7 @@ function onCvEvent(e) {
       st.querySelector("[data-reveal]").addEventListener("click", (ev) =>
         api("reveal_file", ev.target.dataset.reveal));
     } else {
-      st.innerHTML = `<span class="st-err" title="${e.error || ""}">✕</span>`;
+      st.innerHTML = `<span class="st-err" title="${esc(e.error)}">✕</span>`;
       if (e.error) toast(e.error, "err", 7000);
     }
   } else if (e.type === "cv_done") {
@@ -1554,6 +1600,20 @@ function onUpdEvent(e) {
   updRender("available");
 }
 
+function wireCookies(st) {
+  const cur = st.cookies_browser || "";
+  $$("#cookie-browser button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.v === cur));
+  $("#cookie-file-hint").textContent = st.cookies_file
+    ? "Un cookies.txt est aussi présent : il sert quand « Aucun » est choisi."
+    : "";
+  wirePills("#cookie-browser", async (v) => {
+    await api("set_pref", "cookies_browser", v);
+    toast(v ? `Cookies lus depuis ${v.charAt(0).toUpperCase() + v.slice(1)}.`
+            : "Cookies du navigateur désactivés.", "ok");
+  });
+}
+
 function wireSettings(st) {
   U.dev = !!st.dev;
   $("#upd-cur").textContent = "v" + st.version;
@@ -1563,6 +1623,9 @@ function wireSettings(st) {
   });
   $("#btn-report").addEventListener("click", () => copyReport("rapport manuel"));
   $("#btn-logs").addEventListener("click", () => api("open_logs"));
+  wireCookies(st);
+  // yt-dlp a jour tout seul (au plus 1 fois / jour, jamais pendant une tache)
+  setTimeout(() => api("ytdlp_auto"), 20000);
   if (U.dev) return updRender("dev");
   setTimeout(() => checkUpdate(false), 2500);
   setInterval(() => {
@@ -1604,6 +1667,8 @@ window.mudkitEvent = (e) => {
         b.textContent = "Installer les modèles Upscayl (~110 Mo)";
       }
     });
+  } else if (e.type === "ytdlp_updated" && e.auto) {
+    api("ui_ready").then((st) => st && renderEngines(st));
   } else if (e.type === "ytdlp_updated") {
     toast(e.ok ? `yt-dlp à jour (${e.version}), actif au prochain lancement.`
                : "Échec de la mise à jour de yt-dlp", e.ok ? "ok" : "err", 7000);

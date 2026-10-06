@@ -10,7 +10,6 @@ import json
 import logging
 import os
 import subprocess
-import sys
 import threading
 import time
 
@@ -112,11 +111,13 @@ class Api:
             "ytdlp": self._ytdlp_version(),
             "theme": cfg.get("theme", "light"),
             "page": cfg.get("page", "dl"),
+            "cookies_browser": downloader.cookies_browser(),
+            "cookies_file": os.path.isfile(downloader.COOKIES_FILE),
         }
 
     def set_pref(self, key, value):
         """Memorise une preference d'interface (theme, dernier outil...)."""
-        if key not in ("theme", "page"):
+        if key not in ("theme", "page", "cookies_browser"):
             return False
         utils.update_config(**{key: value})
         return True
@@ -125,11 +126,7 @@ class Api:
     def _ytdlp_version():
         # lu sur le disque : juste apres une mise a jour, le module deja
         # importe en memoire donnerait encore l'ancienne version
-        try:
-            from importlib.metadata import version
-            return version("yt-dlp")
-        except Exception:  # noqa: BLE001
-            return None
+        return updater.ytdlp_version()
 
     @staticmethod
     def _dialog_types():
@@ -360,20 +357,27 @@ class Api:
                                   "ok": False})
 
     def update_ytdlp(self):
+        """Bouton des Parametres : mise a jour immediate."""
         def job():
-            r = utils.run_hidden(
-                [sys.executable, "-c",
-                 "import sys; sys.path.insert(0, r'" + utils.ROOT + "'); "
-                 "from mudkit import dnsfix; dnsfix.activate_if_needed(); "
-                 "sys.argv = ['pip', 'install', '-q', '-U', 'yt-dlp']; "
-                 "from pip._internal.cli.main import main; sys.exit(main())"])
-            if r.returncode != 0:
-                log.error("mise a jour yt-dlp : code %s\n%s", r.returncode,
-                          (r.stderr or r.stdout or "")[-2000:])
-            return {"type": "ytdlp_updated", "ok": r.returncode == 0,
+            ok = updater.ytdlp_update(force=True)
+            return {"type": "ytdlp_updated", "ok": ok,
                     "version": self._ytdlp_version()}
         return self._spawn("update_ytdlp", job,
                            crash={"type": "ytdlp_updated", "ok": False})
+
+    def ytdlp_auto(self):
+        """Mise a jour silencieuse, au plus une fois par jour : appelee par
+        l'interface peu apres le demarrage. Rien n'est affiche si rien n'a
+        change ; un echec (hors ligne) est seulement journalise."""
+        if self._busy:
+            return False  # jamais pendant un telechargement en cours
+        def job():
+            ok = updater.ytdlp_update()
+            if ok:
+                return {"type": "ytdlp_updated", "ok": True, "auto": True,
+                        "version": self._ytdlp_version()}
+            return None
+        return self._spawn("update_ytdlp", job)
 
     # ------------------------------------------------------- telechargeur
 
@@ -392,6 +396,10 @@ class Api:
                if section else None)
 
         def job():
+            # pip est en train de remplacer yt-dlp : on attend qu'il ait fini
+            # plutot que de charger un melange des deux versions
+            while "update_ytdlp" in self._busy:
+                time.sleep(0.5)
             try:
                 res = downloader.download(
                     opts["url"], opts["mode"], opts["quality"],

@@ -104,10 +104,10 @@
           <div class="step">
             <div class="step-head"><span class="step-num">2</span>
               <span class="step-title">Taille cible</span></div>
-            <div class="pills grid4" id="cp-targets">
-              <button data-v="1">1 Mo</button>
-              <button data-v="10">10 Mo</button>
-              <button data-v="25" class="on">25 Mo</button>
+            <div class="pills two" id="cp-targets">
+              <button data-v="10" title="Limite d'envoi de Discord sans Nitro">Discord · 10 Mo</button>
+              <button data-v="16" title="Limite d'une vidéo envoyée dans WhatsApp">WhatsApp · 16 Mo</button>
+              <button data-v="25" class="on" title="Limite d'une pièce jointe Gmail">E-mail · 25 Mo</button>
               <button data-v="50">50 Mo</button>
             </div>
             <div class="mo-row">
@@ -262,6 +262,25 @@
           </div>
 
           <div class="panel">
+            <div class="panel-title">Cookies</div>
+            <div class="engine">
+              <div class="eng-info">
+                <span class="eng-name">Sites qui demandent d'être connecté</span>
+                <span class="eng-desc">Instagram, vidéos +18, contenus réservés aux membres. Choisis le navigateur où tu es connecté au site : Mudkit y lit les cookies. Firefox est le plus fiable.</span>
+              </div>
+            </div>
+            <div class="pills grid3" id="cookie-browser">
+              <button data-v="">Aucun</button>
+              <button data-v="firefox">Firefox</button>
+              <button data-v="chrome">Chrome</button>
+              <button data-v="edge">Edge</button>
+              <button data-v="brave">Brave</button>
+              <button data-v="opera">Opera</button>
+            </div>
+            <p class="hint" id="cookie-file-hint"></p>
+          </div>
+
+          <div class="panel">
             <div class="panel-title">Moteurs embarqués</div>
             <div class="engine" id="eng-ffmpeg">
               <div class="eng-info">
@@ -287,7 +306,7 @@
             <div class="engine" id="eng-ytdlp">
               <div class="eng-info">
                 <span class="eng-name">yt-dlp</span>
-                <span class="eng-desc">téléchargement YouTube</span>
+                <span class="eng-desc">téléchargement YouTube, mis à jour tout seul chaque jour</span>
               </div>
               <div class="eng-state">…</div>
             </div>

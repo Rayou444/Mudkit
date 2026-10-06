@@ -276,6 +276,68 @@ def recover():
     return True
 
 
+# ------------------------------------------------------------- yt-dlp
+#
+# YouTube & co changent souvent leur site : un yt-dlp de plus de quelques
+# semaines est la premiere cause de « ca ne telecharge plus ». On le met donc
+# a jour tout seul, au plus une fois par jour, quand rien ne tourne (appli
+# au demarrage, ou panneau Premiere via `python -m mudkit.updater ytdlp`).
+
+YTDLP_STAMP = os.path.join(utils.DATA_DIR, "ytdlp-update.json")
+YTDLP_EVERY = 24 * 3600
+
+
+def _console_python():
+    # pip sous pythonw.exe (pas de console) ecrit dans le vide : python.exe
+    exe = sys.executable
+    alt = os.path.join(os.path.dirname(exe), "python.exe")
+    return alt if os.path.basename(exe).lower() == "pythonw.exe" and os.path.isfile(alt) else exe
+
+
+def ytdlp_update(force=False):
+    """pip install -U yt-dlp. Sans `force` : jamais sur le PC de dev (le
+    .venv reste celui qu'on a choisi), et au plus une fois par 24 h.
+    Renvoie None si rien n'a ete tente, sinon True / False."""
+    if not force:
+        if is_dev():
+            return None
+        try:
+            with open(YTDLP_STAMP, encoding="utf-8") as f:
+                if time.time() - float(json.load(f)["ts"]) < YTDLP_EVERY:
+                    return None
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    # note AVANT d'essayer : hors ligne, on ne relance pas pip a chaque
+    # ouverture du panneau
+    utils.write_json(YTDLP_STAMP, {"ts": time.time()})
+    # ROOT passe en argument, pas colle dans le code : un profil Windows
+    # avec apostrophe (C:\Users\D'Angelo) cassait la commande
+    code = ("import sys; sys.path.insert(0, sys.argv[1]); "
+            "from mudkit import dnsfix; dnsfix.activate_if_needed(); "
+            "sys.argv = ['pip', 'install', '-q', '--disable-pip-version-check', "
+            "'-U', 'yt-dlp']; "
+            "from pip._internal.cli.main import main; sys.exit(main())")
+    try:
+        r = utils.run_hidden([_console_python(), "-E", "-s", "-c", code,
+                              utils.ROOT], timeout=600)
+    except Exception as e:  # noqa: BLE001 - delai depasse, python absent
+        log.error("mise a jour yt-dlp : %s", e)
+        return False
+    if r.returncode != 0:
+        log.error("mise a jour yt-dlp : code %s\n%s", r.returncode,
+                  (r.stderr or r.stdout or "")[-2000:])
+    return r.returncode == 0
+
+
+def ytdlp_version():
+    """Version de yt-dlp lue sur le disque (pas celle deja importee)."""
+    try:
+        from importlib import metadata
+        return metadata.version("yt-dlp")
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def restart():
     """Relance Mudkit avec les memes options de Python (-E / -s)."""
     args = [sys.executable]
@@ -303,6 +365,7 @@ def main(argv=None):
       python -E -s -m mudkit.updater check   une ligne JSON : l'etat
       python -E -s -m mudkit.updater apply   {"pct": ..}* puis une ligne
                                              finale : done / full_only / error
+      python -E -s -m mudkit.updater ytdlp   met yt-dlp a jour (1 fois / jour)
 
     (lance avec le dossier Mudkit comme repertoire courant). Toujours une
     ligne JSON finale sur stdout, jamais une trace Python.
@@ -312,6 +375,11 @@ def main(argv=None):
     recover()  # une mise a jour precedente coupee en pleine copie
     args = sys.argv[1:] if argv is None else argv
     cmd = args[0] if args else "check"
+    if cmd == "ytdlp":  # au plus une fois par jour, cf. ytdlp_update()
+        r = ytdlp_update()
+        _emit({"ytdlp": "skipped" if r is None else "updated" if r else "failed",
+               "version": ytdlp_version()})
+        return 0
     if is_dev():
         _emit({"dev": True, "current": installed_version()})
         return 0

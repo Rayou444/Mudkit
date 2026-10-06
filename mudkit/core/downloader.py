@@ -12,24 +12,68 @@ Cancelled = utils.CancelledError
 # cookies exportes par l'utilisateur (extension "Get cookies.txt LOCALLY")
 COOKIES_FILE = os.path.join(utils.ROOT, "cookies.txt")
 
-_AUTH_HINTS = ("sign in", "log in", "login", "logged", "cookies", "cookie",
-               "private", "age", "account", "members", "subscriber",
-               "authentication", "restricted", "connexion", "not a bot")
+# Navigateurs dont yt-dlp sait lire les cookies (Parametres > Cookies).
+# Firefox est le plus fiable sous Windows : depuis 2024, Chrome et Edge
+# chiffrent leurs cookies d'une facon que yt-dlp ne sait pas toujours lire.
+BROWSERS = ("firefox", "chrome", "edge", "brave", "opera", "vivaldi")
 
-COOKIES_HELP = (
-    "Ce lien demande d'être connecté. Installe l'extension "
-    "\u00ab Get cookies.txt LOCALLY \u00bb dans ton navigateur, va sur le "
-    "site (connecté), exporte les cookies et enregistre le fichier sous "
-    f"{COOKIES_FILE}, puis relance.")
+# Expressions entieres : l'ancien mot-cle "age" trouvait aussi "webpage" et
+# "message", si bien qu'une simple erreur 404 ou une panne reseau etait
+# presentee comme « ce lien demande d'etre connecte ».
+_AUTH_HINTS = ("sign in", "log in", "login required", "logged in",
+               "logged-in", "use --cookies", "cookies-from-browser",
+               "private video", "video is private", "age-restricted",
+               "age restricted", "confirm your age",
+               "inappropriate for some users", "members-only",
+               "members only", "join this channel", "subscriber",
+               "requires authentication", "not a bot", "connexion")
+
+_COOKIE_READ_HINTS = ("cookie database", "decrypt", "dpapi",
+                      "could not find", "failed to load cookies")
 
 
-def has_cookies():
-    return os.path.isfile(COOKIES_FILE)
+def cookies_browser():
+    b = (utils.load_config().get("cookies_browser") or "").lower()
+    return b if b in BROWSERS else ""
+
+
+def cookie_options():
+    """Options yt-dlp pour les cookies : le navigateur choisi dans les
+    Parametres d'abord, sinon cookies.txt s'il existe."""
+    b = cookies_browser()
+    if b:
+        return {"cookiesfrombrowser": (b,)}
+    if os.path.isfile(COOKIES_FILE):
+        return {"cookiefile": COOKIES_FILE}
+    return {}
 
 
 def looks_like_auth_error(msg):
     low = str(msg).lower()
     return any(h in low for h in _AUTH_HINTS)
+
+
+def friendly_error(e):
+    """Message clair quand l'utilisateur peut agir (cookies a fournir,
+    cookies illisibles), sinon None. L'aide passe seule et en entier :
+    avant, elle suivait l'erreur brute et sa fin (le chemin de cookies.txt)
+    etait coupee a l'affichage."""
+    low = str(e).lower()
+    b = cookies_browser()
+    if b and "cookie" in low and any(h in low for h in _COOKIE_READ_HINTS):
+        return (f"Impossible de lire les cookies de {b.capitalize()}. "
+                "Ferme le navigateur puis relance, ou choisis Firefox dans "
+                "Paramètres > Cookies (Chrome et Edge chiffrent leurs "
+                "cookies depuis 2024).")
+    if not looks_like_auth_error(low):
+        return None
+    if b:
+        return (f"Ce lien demande d'être connecté, et les cookies de "
+                f"{b.capitalize()} n'ont pas suffi : vérifie que tu es "
+                "connecté à ce site dans ce navigateur, puis relance.")
+    return ("Ce lien demande d'être connecté. Dans Paramètres > Cookies, "
+            "choisis le navigateur où tu es connecté au site (Firefox "
+            f"conseillé), ou dépose un cookies.txt ici : {COOKIES_FILE}")
 
 
 def _fmt_duration(sec):
@@ -59,9 +103,18 @@ def analyze(url):
     """Retourne les infos d'une video ou d'une playlist (sans telecharger)."""
     import yt_dlp
     opts = {"quiet": True, "no_warnings": True,
-            "extract_flat": "in_playlist", "playlist_items": "1:500"}
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+            "extract_flat": "in_playlist", "playlist_items": "1:500",
+            # memes cookies que le telechargement : sinon une video +18 ou
+            # reservee aux membres echouait des l'analyse
+            **cookie_options()}
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except yt_dlp.utils.DownloadError as e:
+        msg = friendly_error(e)
+        if msg:
+            raise RuntimeError(msg) from e
+        raise
 
     if info.get("_type") == "playlist":
         entries = [e for e in (info.get("entries") or []) if e]
@@ -97,8 +150,7 @@ def build_options(mode, quality, container, playlist, dest, section=None):
     if utils.has_ffmpeg():
         opts["ffmpeg_location"] = utils.BIN_DIR
         utils.ensure_ffmpeg_on_path()
-    if has_cookies():  # debloque les liens qui demandent d'etre connecte
-        opts["cookiefile"] = COOKIES_FILE
+    opts.update(cookie_options())  # liens qui demandent d'etre connecte
     if section:  # ne telecharge que le passage demande (start, end) en s
         from yt_dlp.utils import download_range_func
         opts["download_ranges"] = download_range_func([], [tuple(section)])
@@ -108,8 +160,10 @@ def build_options(mode, quality, container, playlist, dest, section=None):
             opts["format"] = "bestvideo+bestaudio/best"
         else:
             h = int(quality)
-            opts["format"] = (f"bestvideo[height<={h}]+bestaudio"
-                              f"/best[height<={h}]")
+            # "<=?" : un format sans hauteur connue (lien direct vers un
+            # .mp4) n'est plus exclu ; "/best" en dernier recours
+            opts["format"] = (f"bestvideo[height<=?{h}]+bestaudio"
+                              f"/best[height<=?{h}]/best")
         opts["merge_output_format"] = container
     else:
         opts["format"] = "bestaudio/best"
@@ -163,7 +217,18 @@ def download(url, mode, quality, container, playlist, dest,
             # extraction puis telechargement en deux temps (comme le fait
             # extract_info) pour choisir un nom libre entre les deux
             info = ydl.extract_info(url, download=False, process=False)
+            # un lien « video + Mix » renvoie d'abord un simple renvoi vers
+            # la video : on le suit, sinon l'anti-doublon de nom etait saute
+            for _ in range(3):
+                if info.get("_type") != "url" or not info.get("url"):
+                    break
+                info = ydl.extract_info(info["url"], download=False,
+                                        process=False)
             kind = info.get("_type", "video")
+            # n'ignorer les erreurs (video supprimee...) que pour une vraie
+            # playlist : sur une video seule, l'erreur doit remonter au lieu
+            # d'un « termine » sans fichier
+            ydl.params["ignoreerrors"] = playlist and kind == "playlist"
             if kind == "video":
                 _avoid_name_clash(ydl, info, dest)
             elif playlist and kind == "playlist":
@@ -172,10 +237,13 @@ def download(url, mode, quality, container, playlist, dest,
     except yt_dlp.utils.DownloadCancelled:
         raise Cancelled() from None
     except yt_dlp.utils.DownloadError as e:
-        if looks_like_auth_error(e) and not has_cookies():
-            raise RuntimeError(f"{str(e)[:150]}\n{COOKIES_HELP}") from e
+        msg = friendly_error(e)
+        if msg:
+            raise RuntimeError(msg) from e
         raise
-    info = info or {}
+    if not info:
+        raise RuntimeError("rien n'a pu être téléchargé (lien privé, "
+                           "supprimé ou coupure réseau)")
     files = _output_files(info)
     total = failed = 0
     if info.get("_type") == "playlist":

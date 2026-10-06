@@ -33,7 +33,6 @@ var LOCALAPP = (typeof process !== "undefined" && process.env && process.env.LOC
 var CACHE = LOCALAPP ? LOCALAPP + "\\Mudkit\\lib-cache" : null;
 
 var MAX_DEPTH = 12;
-var PAGE = 150;
 var SPRITE_N = 24;
 var SKIP_DIRS = { "node_modules":1, "$recycle.bin":1, ".git":1,
                   "system volume information":1, ".cache":1 };
@@ -73,6 +72,7 @@ var ICO = {
   mogrt:  S + '<path d="M8 2.3l5.7 5.7L8 13.7 2.3 8z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 5.5L10.5 8 8 10.5 5.5 8z" fill="currentColor"/></svg>',
   chev:   S + '<path d="M6.2 4.4L9.8 8l-3.6 3.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   folder: S + '<path d="M1.9 4h4l1.1 1.5h7.1v6.6H1.9z" fill="currentColor"/></svg>',
+  clock:  S + '<circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 5v3.2l2.2 1.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   star:   S + '<path d="M8 2.2l1.75 3.54 3.91.57-2.83 2.76.67 3.89L8 11.13l-3.5 1.83.67-3.89L2.34 6.31l3.91-.57z" fill="currentColor"/></svg>',
   plus:   S + '<path d="M8 3.4v9.2M3.4 8h9.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
   play:   S + '<path d="M5.4 3.2l7.2 4.8-7.2 4.8z" fill="currentColor"/></svg>',
@@ -95,7 +95,9 @@ var favs = {};          // chemin -> 1
 var open = {};          // cle de noeud -> ouvert
 var sel = "";           // cle du noeud selectionne ("" = tout)
 var view = [];
-var rendered = 0;
+var byPath = {};        // chemin en minuscules -> item (Recents)
+var recents = [];       // chemins des derniers fichiers poses, du plus recent
+var missing = [];       // dossiers enregistres mais introuvables (disque debranche)
 var query = "";
 var favOnly = false;
 var action = "insert";
@@ -154,33 +156,60 @@ var queue = [], busy = 0, MAXJOBS = 8;
    (rescan, demontage) -- surtout pas a chaque scan, sinon monter deux dossiers
    en parallele ferait avorter le premier scan (et refreshAfterMount ne serait
    jamais appele). Chaque scan compare l'epoque capturee au demarrage. */
-function invalidate() { token++; queue.length = 0; }
+function invalidate() {
+  token++;
+  var dropped = queue; queue = [];
+  dropped.forEach(function (j) { j.done(SKIPPED); });   // cf. pump()
+}
 
 /* opts.el   : tuile concernee -- si elle a quitte le DOM (defilement, filtre,
                 changement de dossier), le job est abandonne au lieu de bloquer
                 la file derriere des vignettes que plus personne ne regarde.
    opts.first : passe devant. Les vignettes demandees en dernier sont celles
-                qui viennent d'entrer a l'ecran, ce sont donc les urgentes. */
+                qui viennent d'entrer a l'ecran, ce sont donc les urgentes.
+   opts.bg   : tache de fond (mesure des durees pour le filtre) : abandonnee
+                des que ce filtre change (bgGen avance).
+   Chaque job est tue au bout de JOB_MAX_MS : un fichier qui fait tourner
+   ffmpeg sans fin ne bloque plus une place de la file pour toujours. */
+var JOB_MAX_MS = 120000;
+var SKIPPED = "skipped";
+var bgGen = 0;
 function run(exe, args, done, opts) {
   opts = opts || {};
-  var job = { exe:exe, args:args, done:done, tok:token, el:opts.el };
+  var job = { exe:exe, args:args, done:done, tok:token, el:opts.el, bg:opts.bg };
   if (opts.first) queue.unshift(job); else queue.push(job);
   pump();
 }
 function pump() {
   while (busy < MAXJOBS && queue.length) {
     var job = queue.shift();
-    if (job.tok !== token) continue;
-    if (job.el && !job.el.isConnected) continue;   // tuile plus a l'ecran
+    /* Job abandonne : on le DIT a son demandeur (SKIPPED), sinon une sonde
+       en attente restait "en cours" pour toujours et le fichier n'etait
+       plus jamais mesure. */
+    if (job.tok !== token ||                        // rescan / demontage
+        (job.el && !job.el.isConnected) ||          // tuile plus a l'ecran
+        (job.bg && job.bg !== bgGen)) {             // filtre de duree change
+      job.done(SKIPPED);
+      continue;
+    }
     busy++;
     (function (j) {
-      var out = "", err = "", p;
+      var out = "", err = "", p, ended = false, timer = null;
+      /* Une seule fin par job : quand le lancement echoue, Node envoie
+         "error" PUIS "close". Compte deux fois, busy devenait negatif et la
+         limite de MAXJOBS ffmpeg en parallele sautait (PC qui gele). */
+      function end(e, o) {
+        if (ended) return;
+        ended = true; clearTimeout(timer); busy--;
+        j.done(e, o); pump();
+      }
       try { p = spawn(j.exe, j.args, { windowsHide:true }); }
-      catch (e) { busy--; j.done(String(e)); return pump(); }
+      catch (e) { return end(String(e)); }
+      timer = setTimeout(function () { try { p.kill(); } catch (e) {} }, JOB_MAX_MS);
       p.stdout.on("data", function (c) { out += c.toString(); });
       p.stderr.on("data", function (c) { err += c.toString(); });
-      p.on("error", function (e) { busy--; j.done(String(e)); pump(); });
-      p.on("close", function (c) { busy--; j.done(c === 0 ? null : (err.trim() || ("code " + c)), out); pump(); });
+      p.on("error", function (e) { end(String(e)); });
+      p.on("close", function (c) { end(c === 0 ? null : (err.trim() || ("code " + c)), out); });
     })(job);
   }
 }
@@ -190,37 +219,63 @@ function pump() {
 function cachePath(sub, key, ex) { var d = CACHE + "\\" + sub; mkdirp(d); return d + "\\" + key + ex; }
 function keyOf(it) { return md5(it.p + "|" + it.mt + "|" + it.sz); }
 function indexFile(r) { mkdirp(CACHE); return CACHE + "\\idx-" + md5(r.toLowerCase()) + ".json"; }
-function loadIndex(r) {
-  try { var o = JSON.parse(fs.readFileSync(indexFile(r), "utf8")); if (o && o.v === 2 && o.items) return o; }
-  catch (e) {}
-  return null;
+
+/* L'index d'un gros dossier pese ~13 Mo : lu et ecrit SANS bloquer le
+   panneau (avant : readFileSync / writeFileSync sur le fil de l'interface).
+   Ecriture dans un fichier temporaire puis renommage : jamais d'index a
+   moitie ecrit si Premiere se ferme pendant l'ecriture. */
+function loadIndex(r, cb) {
+  fs.readFile(indexFile(r), "utf8", function (err, txt) {
+    var o = null;
+    if (!err) { try { o = JSON.parse(txt); } catch (e) { o = null; } }
+    cb(o && o.v === 2 && o.items ? o : null);
+  });
 }
 function saveIndex(lib) {
+  if (!lib || lib.gone) return;
+  var dest = indexFile(lib.root), tmp = dest + "." + Date.now() + ".tmp", data;
   try {
-    fs.writeFileSync(indexFile(lib.root),
-      JSON.stringify({ v:2, root:lib.root, ts:Date.now(), items:lib.items, meta:lib.meta, mh:lib.mh }));
-  } catch (e) {}
+    data = JSON.stringify({ v:2, root:lib.root, ts:Date.now(), items:lib.items, meta:lib.meta, mh:lib.mh });
+  } catch (e) { return; }
+  fs.writeFile(tmp, data, function (err) {
+    if (err) return fs.unlink(tmp, function () {});
+    fs.rename(tmp, dest, function (e2) { if (e2) fs.unlink(tmp, function () {}); });
+  });
 }
+/* Dossier retire : son index part avec lui (sinon, remonte des mois plus
+   tard, il revenait avec son vieux contenu). */
+function deleteIndex(r) { fs.unlink(indexFile(r), function () {}); }
 
 /* ---------------------------------- scan ------------------------------- */
 
+/* Annulation PAR dossier (lib.scanId) : rescanner ou retirer un dossier ne
+   coupe plus, sans rien dire, le scan d'un autre dossier en cours (un
+   dossier tout juste ajoute pouvait sinon disparaitre au redemarrage). */
+var SCAN_SLICE = 1500;       // entrees traitees par tranche
+
 function scan(lib, after) {
-  var mine = token;          // epoque capturee : PAS d'increment ici
+  var mine = lib.scanId = (lib.scanId || 0) + 1;
   lib.items = [];
   lib.mh = {};               // cle "rel/nom.ext" en minuscules -> chemin d'apercu
   /* mh sur une entree de file = { base, sub } : on est DANS un dossier
      d'apercus Mister Horse ; base = rel du dossier qui le contient, sub = le
      chemin parcouru a l'interieur. Le media source est donc base/sub/<nom>. */
   var dirs = [{ d:lib.root, rel:"", lvl:0, mh:null }], seenDirs = 0, nPrev = 0;
+  var cur = null, ents = null, i = 0;
 
+  /* Le budget compte les FICHIERS, plus les dossiers : un dossier de 40 000
+     sons faisait 40 000 statSync d'affilee et gelait le panneau. On reprend
+     au milieu d'un dossier a la tranche suivante. */
   function step() {
-    if (mine !== token) return;
-    var budget = 60;
-    while (dirs.length && budget-- > 0) {
-      var cur = dirs.shift(); seenDirs++;
-      var ents;
-      try { ents = fs.readdirSync(cur.d, { withFileTypes:true }); } catch (e) { continue; }
-      for (var i = 0; i < ents.length; i++) {
+    if (lib.scanId !== mine || lib.gone) return;
+    var budget = SCAN_SLICE;
+    while (budget > 0) {
+      if (!ents) {
+        if (!dirs.length) break;
+        cur = dirs.shift(); seenDirs++; i = 0;
+        try { ents = fs.readdirSync(cur.d, { withFileTypes:true }); } catch (e) { ents = null; continue; }
+      }
+      for (; i < ents.length && budget > 0; i++, budget--) {
         var en = ents[i], nm = en.name;
         if (nm.charAt(0) === ".") continue;
         var full = cur.d + "\\" + nm;
@@ -252,10 +307,11 @@ function scan(lib, after) {
         var st; try { st = fs.statSync(full); } catch (er) { continue; }
         lib.items.push({ p:full, n:nm, e:e, k:k, rel:cur.rel, sz:st.size, mt:st.mtimeMs | 0 });
       }
+      if (i >= ents.length) ents = null;
     }
     say("Scan... " + lib.items.length + " fichiers, " + seenDirs + " dossiers" +
         (nPrev ? " (" + nPrev + " apercus Mister Horse reutilisables)" : ""));
-    if (dirs.length) return setTimeout(step, 0);
+    if (ents || dirs.length) return setTimeout(step, 0);
     lib.items.sort(function (a, b) { return a.rel === b.rel ? a.n.localeCompare(b.n) : a.rel.localeCompare(b.rel); });
     saveIndex(lib);
     after();
@@ -274,13 +330,24 @@ function mhPreview(it) {
 
 function rebuildAll() {
   invalidateTree();
-  all = [];
+  all = []; byPath = {};
   libs.forEach(function (lib, li) {
-    lib.items.forEach(function (it) { it.lib = li; all.push(it); });
+    lib.items.forEach(function (it) { it.lib = li; all.push(it); byPath[it.p.toLowerCase()] = it; });
   });
 }
 
-function nodeKey(li, rel) { return rel ? li + ":" + rel : String(li); }
+/* Cles de noeud par CHEMIN du dossier monte, plus par sa position dans la
+   liste : un disque debranche au demarrage decalait toutes les positions, et
+   la selection / les dossiers deplies pointaient sur un autre dossier. */
+var RECENTS = "@recents", MISSING = "@missing|";
+function rootKey(root) { return root.toLowerCase(); }
+function nodeKey(li, rel) { return rootKey(libs[li].root) + "|" + rel; }
+function libOfKey(key) {   // index du dossier monte vise par une cle, ou -1
+  var rk = key.slice(0, key.indexOf("|"));
+  for (var i = 0; i < libs.length; i++) if (rootKey(libs[i].root) === rk) return i;
+  return -1;
+}
+function isNodeKey(key) { return key.indexOf("|") > 0 && key.charAt(0) !== "@"; }
 
 var treeCache = null;
 function invalidateTree() { treeCache = null; }
@@ -288,7 +355,7 @@ function invalidateTree() { treeCache = null; }
 function buildTree() {
   if (treeCache) return treeCache;          // 33 ms sur 43k items : on garde
   treeCache = libs.map(function (lib, li) {
-    var rootNode = { name:base(lib.root), key:String(li), lib:li, rel:"", kids:{}, count:0, isRoot:true };
+    var rootNode = { name:base(lib.root), key:nodeKey(li, ""), lib:li, rel:"", kids:{}, count:0, isRoot:true };
     lib.items.forEach(function (it) {
       rootNode.count++;
       if (!it.rel) return;
@@ -305,11 +372,39 @@ function buildTree() {
   return treeCache;
 }
 
+function selectKey(key) {
+  sel = key;
+  lsSet("mudkit.lib.sel", sel);
+  renderTree(); redraw();
+}
+
 function renderTree() {
   var t = $("#tree");
   t.innerHTML = "";
-  if (!libs.length) return;
+  if (recents.length) {
+    t.appendChild(flatRow(RECENTS, ICO.clock, "R\u00E9cents", recentItems().length, "",
+      "Les derniers fichiers poses ou glisses sur la timeline"));
+  }
   buildTree().forEach(function (n) { renderNode(t, n, 0); });
+  missing.forEach(function (r) {
+    var row = flatRow(MISSING + r, ICO.folder, base(r), "?", " off",
+      r + "\nIntrouvable (disque debranche ?). Clique dessus une fois rebranche ; - pour le retirer.");
+    row.addEventListener("click", function () { retryMissing(r); });
+    t.appendChild(row);
+  });
+}
+
+/* Ligne sans enfants : Recents, dossier introuvable. */
+function flatRow(key, icon, name, count, cls, title) {
+  var row = document.createElement("div");
+  row.className = "node root" + cls + (sel === key ? " sel" : "");
+  row.style.paddingLeft = "6px";
+  row.title = title;
+  row.innerHTML = '<span class="tw leaf">' + ICO.chev + '</span><span class="fic">' + icon + '</span>';
+  var nm = document.createElement("span"); nm.className = "nm"; nm.textContent = name; row.appendChild(nm);
+  var ct = document.createElement("span"); ct.className = "ct"; ct.textContent = count; row.appendChild(ct);
+  row.addEventListener("click", function () { selectKey(key); });
+  return row;
 }
 
 function renderNode(host, n, depth) {
@@ -336,10 +431,8 @@ function renderNode(host, n, depth) {
     renderTree();
   });
   row.addEventListener("click", function () {
-    sel = n.key;
     if (kids.length && !open[n.key]) { open[n.key] = true; lsSet("mudkit.lib.open", JSON.stringify(open)); }
-    lsSet("mudkit.lib.sel", sel);
-    renderTree(); redraw();
+    selectKey(n.key);
   });
   host.appendChild(row);
 
@@ -347,86 +440,232 @@ function renderNode(host, n, depth) {
     kids.forEach(function (k) { renderNode(host, n.kids[k], depth + 1); });
 }
 
-/* Le noeud selectionne montre TOUT son sous-arbre (comme Mister Horse). */
-function inSelection(it) {
-  if (!sel) return true;
-  var c = sel.split(":"), li = +c[0], rel = c[1] || "";
-  if (it.lib !== li) return false;
-  if (!rel) return true;
-  return it.rel === rel || it.rel.indexOf(rel + "/") === 0;
+/* ------------------------------- recents ------------------------------- */
+
+/* Les derniers fichiers poses (double-clic, +) ou glisses sur la timeline,
+   pour retrouver vite un son deja utilise. Chemins, du plus recent au plus
+   ancien ; seuls ceux encore presents dans un dossier monte s'affichent. */
+var RECENTS_MAX = 60;
+function pushRecent(p) {
+  var low = p.toLowerCase();
+  recents = recents.filter(function (x) { return x.toLowerCase() !== low; });
+  recents.unshift(p);
+  if (recents.length > RECENTS_MAX) recents.length = RECENTS_MAX;
+  lsSet("mudkit.lib.recents", JSON.stringify(recents));
+  renderTree();
+}
+function recentItems() {
+  var out = [];
+  recents.forEach(function (p) { var it = byPath[p.toLowerCase()]; if (it) out.push(it); });
+  return out;
 }
 
+/* -------------------------- filtre par duree --------------------------- */
+
+/* Les bruitages se choisissent d'abord a leur duree. Les durees inconnues
+   sont mesurees en tache de fond (ffprobe, file basse priorite) puis
+   gardees dans l'index : la mesure n'est faite qu'une fois par fichier. */
+var DUR = {
+  lt1:  { lo:0,  hi:1 },
+  s1_5: { lo:1,  hi:5 },
+  s5_30:{ lo:5,  hi:30 },
+  gt30: { lo:30, hi:Infinity }
+};
+var durf = "";            // filtre actif ("" = aucun)
+var durMissing = [];      // fichiers du perimetre dont la duree manque
+var durPass = null;       // { gen, done, total } mesure en cours
+var durRefresh = null;
+
+function knownDur(it) {
+  var lib = libs[it.lib], m = lib && lib.meta[it.p];
+  return m && m.dur != null ? m.dur : null;
+}
+function durOk(it) {
+  if (it.k !== "audio" && it.k !== "video") return false;
+  var d = knownDur(it);
+  if (d == null) { if (!it._probeFail) durMissing.push(it); return false; }
+  var r = DUR[durf];
+  return d >= r.lo && d < r.hi;
+}
+
+function startDurationPass() {
+  bgGen++;                               // abandonne la mesure precedente
+  durPass = null;
+  if (!durf || !durMissing.length) return;
+  var gen = bgGen, list = durMissing.slice();
+  durPass = { gen:gen, done:0, total:list.length };
+  list.forEach(function (it) {
+    probeInfo(it, function () {
+      if (gen !== bgGen) return;
+      durPass.done++;
+      // la grille se complete au fil de l'eau, sans remonter en haut
+      if (!durRefresh) durRefresh = setTimeout(function () {
+        durRefresh = null;
+        if (gen === bgGen) redraw(true, true);
+      }, durPass.done >= durPass.total ? 0 : 1200);
+    }, { bg:gen });
+  });
+}
+
+/* Le noeud selectionne montre TOUT son sous-arbre (comme Mister Horse). */
 function computeView() {
   var terms = query.trim() ? query.toLowerCase().trim().split(/\s+/) : null;
-  return all.filter(function (it) {
+  var src = all, selLi = -1, selRel = "";
+  if (!terms) {
+    if (sel === RECENTS) src = recentItems();
+    else if (sel.indexOf(MISSING) === 0) return [];
+    else if (isNodeKey(sel)) {
+      selLi = libOfKey(sel);
+      if (selLi < 0) return [];
+      selRel = sel.slice(sel.indexOf("|") + 1);
+    }
+  }
+  return src.filter(function (it) {
     if (favOnly && !favs[it.p]) return false;
+    if (durf && !durOk(it)) return false;
     if (terms) {
       var hay = (it.rel + "/" + it.n).toLowerCase();
       for (var i = 0; i < terms.length; i++) if (hay.indexOf(terms[i]) < 0) return false;
       return true;                       // la recherche ignore la selection
     }
-    return inSelection(it);
+    if (selLi < 0) return true;
+    if (it.lib !== selLi) return false;
+    if (!selRel) return true;
+    return it.rel === selRel || it.rel.indexOf(selRel + "/") === 0;
   });
 }
 
 /* --------------------------------- rendu ------------------------------- */
 
-var io = null;
+/* Grille VIRTUELLE : seules les tuiles visibles (plus 2 rangees de marge)
+   existent dans la page, placees en absolu dans une boite aussi haute que la
+   grille entiere. Avant, chaque page de 150 tuiles s'ajoutait sans jamais
+   repartir : 40 000 tuiles dans la page apres un long defilement, et chaque
+   page relancait la mise en page de toute la grille. */
+var GAP_X = 8, GAP_Y = 9, PAD = 8, META_H = 17, BUFFER_ROWS = 2;
+var vbox = null, vtiles = new Map(), L = null, paintQueued = false;
+var selPath = null;      // fichier selectionne : survit au recyclage des tuiles
 
 /* Ne coupe PAS le son : chercher, changer de dossier ou filtrer les favoris
    pendant qu'une musique tourne est justement le cas d'usage. tile() remet
-   le marquage sur la nouvelle tuile du son en cours si elle reapparait. */
-function redraw() {
+   le marquage sur la nouvelle tuile du son en cours si elle reapparait.
+   keepScroll : garde la position (favori retire, mesure des durees...).
+   soft : simple rafraichissement, ne relance pas la mesure des durees. */
+function redraw(keepScroll, soft) {
   unmarkTile();
-  var g = $("#grid");
-  g.innerHTML = ""; rendered = 0; selTile = null;
-  if (io) io.disconnect();
-  io = new IntersectionObserver(onVisible, { root:g, rootMargin:"300px" });
-
+  var g = $("#grid"), top = keepScroll ? g.scrollTop : 0;
+  g.innerHTML = ""; selTile = null; vtiles = new Map(); vbox = null; L = null;
+  durMissing = [];
   view = computeView();
+  if (!soft) startDurationPass();
 
   if (!view.length) {
     var d = document.createElement("div"); d.className = "empty";
-    d.innerHTML = !libs.length
+    d.innerHTML = !libs.length && !missing.length
       ? "Aucun dossier monte.<br>Clique sur <b>+</b> en haut a droite pour en ajouter un."
-      : (favOnly ? "Aucun favori ici." : "Rien a afficher.");
+      : sel.indexOf(MISSING) === 0 && !query.trim()
+        ? "Ce dossier est introuvable (disque debranche ?).<br>Clique a nouveau dessus une fois rebranche, ou retire-le avec <b>-</b>."
+      : durPass && durPass.done < durPass.total ? "Mesure des durees en cours..."
+      : favOnly ? "Aucun favori ici."
+      : sel === RECENTS && !query.trim() ? "Rien de recent pour l'instant."
+      : "Rien a afficher.";
     g.appendChild(d);
-  } else renderMore();
-
+  } else {
+    vbox = document.createElement("div"); vbox.className = "vbox";
+    g.appendChild(vbox);
+    layout();
+    g.scrollTop = top;
+    paint();
+  }
   countLine();
+}
+
+function layout() {
+  var g = $("#grid");
+  var inner = Math.max(0, g.clientWidth - 2 * PAD);
+  var cols = Math.max(1, Math.floor((inner + GAP_X) / (tileW + GAP_X)));
+  var colW = (inner - (cols - 1) * GAP_X) / cols;
+  var same = L && Math.abs(L.colW - colW) < 0.5;
+  L = { cols:cols, colW:colW, rows:Math.ceil(view.length / cols),
+        rowH: same ? L.rowH : colW * 0.5625 + 2 + META_H, measured: same && L.measured };
+  vbox.style.height = (2 * PAD + L.rows * (L.rowH + GAP_Y) - GAP_Y) + "px";
+}
+
+function place(el, i) {
+  var r = Math.floor(i / L.cols), c = i % L.cols;
+  el.style.left = (PAD + c * (L.colW + GAP_X)) + "px";
+  el.style.top = (PAD + r * (L.rowH + GAP_Y)) + "px";
+  el.style.width = L.colW + "px";
+}
+
+function paint() {
+  paintQueued = false;
+  if (!vbox || !L) return;
+  var g = $("#grid"), stride = L.rowH + GAP_Y;
+  var r0 = Math.max(0, Math.floor((g.scrollTop - PAD) / stride) - BUFFER_ROWS);
+  var r1 = Math.min(L.rows - 1, Math.floor((g.scrollTop + g.clientHeight - PAD) / stride) + BUFFER_ROWS);
+  var i0 = r0 * L.cols, i1 = Math.min(view.length - 1, (r1 + 1) * L.cols - 1);
+  vtiles.forEach(function (el, i) {
+    if (i >= i0 && i <= i1) return;
+    if (el === selTile) selTile = null;
+    el.remove(); vtiles.delete(i);       // ses jobs ffmpeg en file sont abandonnes
+  });
+  var fresh = [];
+  for (var i = i0; i <= i1; i++) {
+    var el = vtiles.get(i);
+    if (!el) { el = tile(view[i]); vtiles.set(i, el); vbox.appendChild(el); fresh.push(el); }
+    place(el, i);
+  }
+  fresh.forEach(thumb);
+  if (!L.measured && vtiles.size) {
+    // hauteur reelle d'une tuile : depend de la police choisie dans Premiere
+    L.measured = true;
+    var h = vtiles.values().next().value.offsetHeight;
+    if (h && Math.abs(h - L.rowH) > 0.5) {
+      L.rowH = h;
+      vbox.style.height = (2 * PAD + L.rows * (L.rowH + GAP_Y) - GAP_Y) + "px";
+      vtiles.forEach(function (t, j) { place(t, j); });
+      paint();
+    }
+  }
+}
+
+function schedulePaint() {
+  if (paintQueued) return;
+  paintQueued = true;
+  requestAnimationFrame(paint);
+  // filet : requestAnimationFrame est suspendu quand le panneau est masque
+  setTimeout(function () { if (paintQueued) paint(); }, 80);
+}
+
+/* Largeur de la grille ou taille des vignettes changee : nouvelles colonnes. */
+function relayout() {
+  if (!vbox) return;
+  layout();
+  vtiles.forEach(function (t, j) { place(t, j); });
+  paint();
+}
+
+/* Amene la tuile n i a l'ecran (son suivant / precedent du lecteur). */
+function ensureVisible(i) {
+  if (!vbox || !L) return null;
+  var g = $("#grid"), y = PAD + Math.floor(i / L.cols) * (L.rowH + GAP_Y);
+  if (y < g.scrollTop) g.scrollTop = y - PAD;
+  else if (y + L.rowH > g.scrollTop + g.clientHeight) g.scrollTop = y + L.rowH - g.clientHeight + PAD;
+  paint();
+  return vtiles.get(i) || null;
 }
 
 function countLine() {
   var n = { audio:0, video:0, image:0, mogrt:0 };
   view.forEach(function (i) { n[i.k]++; });
-  var where = query.trim() ? "\u00AB " + query.trim() + " \u00BB" : (sel ? "" : "tout");
+  var where = query.trim() ? "\u00AB " + query.trim() + " \u00BB"
+            : sel === RECENTS ? "recents" : (sel ? "" : "tout");
   say(view.length + " elements " + (where ? where + " " : "") +
       "- " + n.audio + " sons, " + n.video + " videos, " + n.image + " images" +
-      (n.mogrt ? ", " + n.mogrt + " mogrt" : ""), "ok");
-}
-
-function renderMore() {
-  var g = $("#grid");
-  var old = $("#more"); if (old) old.remove();
-  var end = Math.min(rendered + PAGE, view.length);
-  var frag = document.createDocumentFragment(), fresh = [];
-  for (var i = rendered; i < end; i++) { var t = tile(view[i]); fresh.push(t); frag.appendChild(t); }
-  g.appendChild(frag);
-  rendered = end;
-  if (rendered < view.length) {
-    var more = document.createElement("div"); more.id = "more";
-    more.textContent = "... " + (view.length - rendered) + " de plus";
-    g.appendChild(more); io.observe(more);
-  }
-  for (var j = 0; j < fresh.length; j++) io.observe(fresh[j]);
-}
-
-function onVisible(entries) {
-  entries.forEach(function (en) {
-    if (!en.isIntersecting) return;
-    if (en.target.id === "more") { io.unobserve(en.target); return renderMore(); }
-    io.unobserve(en.target); thumb(en.target);
-  });
+      (n.mogrt ? ", " + n.mogrt + " mogrt" : "") +
+      (durPass && durPass.done < durPass.total
+        ? " - mesure des durees " + durPass.done + "/" + durPass.total : ""), "ok");
 }
 
 function tile(it) {
@@ -464,13 +703,17 @@ function tile(it) {
     } catch (e) {}
     say("Glisse \u00AB " + it.n + " \u00BB sur la timeline...");
   });
+  el.addEventListener("dragend", function (ev) {
+    // depose quelque part (la timeline) : il rejoint les Recents
+    if (ev.dataTransfer && ev.dataTransfer.dropEffect !== "none") pushRecent(it.p);
+  });
 
   fv.addEventListener("click", function (ev) {
     ev.stopPropagation();
     if (favs[it.p]) delete favs[it.p]; else favs[it.p] = 1;
     fv.classList.toggle("on", !!favs[it.p]);
     lsSet("mudkit.lib.favs", JSON.stringify(Object.keys(favs)));
-    if (favOnly) redraw();
+    if (favOnly) redraw(true);          // sans remonter en haut de la grille
   });
   add.addEventListener("click", function (ev) { ev.stopPropagation(); doImport(it); });
   el.addEventListener("click", function (ev) {
@@ -500,18 +743,27 @@ function tile(it) {
     el.addEventListener("mouseleave", function () {
       if (el.dataset.vsprite) { th.style.backgroundPosition = "50% 0%"; return; }
       th.classList.remove("sprite"); th.style.backgroundSize = "cover"; th.style.backgroundPosition = "center";
-      if (el.dataset.poster) th.style.backgroundImage = "url(" + el.dataset.poster + ")";
+      if (el.dataset.poster) th.style.backgroundImage = cssUrl(el.dataset.poster);
+      // pas d'image fixe : on revient a la 1re image du sprite au lieu de
+      // laisser deux demi-images du milieu de la video
+      else if (th._scrub) { th.style.backgroundSize = (SPRITE_N * 100) + "% 100%"; th.style.backgroundPosition = "0% 50%"; }
     });
   }
   if (cur && cur.p === it.p) markTile(el);
+  if (selPath === it.p) { el.classList.add("sel"); selTile = el; }
   return el;
 }
 
 /* ------------------------------- vignettes ----------------------------- */
 
+/* url("...") ENTRE GUILLEMETS : encodeURI laisse passer ( ) et ', et un
+   url(...) nu avec `clip (1).jpg`, `Voix d'homme.wav` ou un profil Windows
+   `O'Brien` etait une declaration CSS invalide -> vignette vide. */
+function cssUrl(u) { return 'url("' + String(u).replace(/["\\]/g, "\\$&") + '")'; }
+
 function setBg(el, url) {
   var th = el.querySelector(".th");
-  th.style.backgroundImage = "url(" + url + ")";
+  th.style.backgroundImage = cssUrl(url);
   var g = th.querySelector(".glyph"); if (g) g.style.display = "none";
 }
 function setDur(el, s) { var d = el.querySelector(".dur"); if (d) d.textContent = clock(s); }
@@ -527,12 +779,25 @@ function metaOf(it) {
    l'audio (musique dans un conteneur video, typiquement dans 03_MUSIQUE).
    Tenter d'en extraire une image echoue avec "Output file does not contain
    any stream" et laisse une vignette vide -- le fameux carre. */
-function probeInfo(it, cb) {
+var probing = {};       // chemin -> rappels en attente : une seule sonde par fichier
+function probeInfo(it, cb, opts) {
   var m = metaOf(it);
   if (m.vid !== undefined) return cb(m);
+  if (probing[it.p]) return probing[it.p].push(cb);
+  probing[it.p] = [cb];
   run(FFPROBE, ["-v","error","-show_entries","format=duration:stream=codec_type",
-                "-of","default=nw=1:nk=1", it.p], 
+                "-of","default=nw=1:nk=1", it.p],
     function (err, out) {
+      var cbs = probing[it.p] || [];
+      delete probing[it.p];
+      if (err) {
+        /* Sonde ratee (NAS deconnecte, ffprobe absent, .r3d illisible) ou
+           abandonnee : on ne conclut RIEN. Avant, une video etait alors prise
+           pour un son, et c'etait enregistre dans l'index jusqu'au Rescanner. */
+        if (err !== SKIPPED) it._probeFail = true;
+        var unknown = { dur:null, vid:it.k === "video", failed:true };
+        return cbs.forEach(function (f) { f(unknown); });
+      }
       var toks = String(out || "").trim().split(/\s+/);
       var d = null, hasVid = false;
       for (var i = 0; i < toks.length; i++) {
@@ -541,8 +806,9 @@ function probeInfo(it, cb) {
         if (isFinite(f)) d = f;
       }
       m.dur = d; m.vid = hasVid;
-      cb(m);
-    });
+      saveIndexSoon(libs[it.lib]);   // duree gardee : plus de ffprobe a chaque session
+      cbs.forEach(function (fn) { fn(m); });
+    }, opts);
 }
 
 /* Un fichier classe "video" mais sans image est en realite un son : on le
@@ -565,11 +831,15 @@ var saveTimer = null, savePending = [];
 function saveIndexSoon(lib) {
   if (!lib) return;
   if (savePending.indexOf(lib) < 0) savePending.push(lib);
-  clearTimeout(saveTimer);
+  /* Au plus une ecriture toutes les 15 s, et SANS repousser le delai a
+     chaque appel : pendant une mesure de durees en continu, un delai
+     repousse sans fin n'aurait jamais rien enregistre. */
+  if (saveTimer) return;
   saveTimer = setTimeout(function () {
+    saveTimer = null;
     savePending.forEach(function (l) { saveIndex(l); });
     savePending = [];
-  }, 4000);
+  }, 15000);
 }
 
 /* Vignette : on tente d'abord de reutiliser l'apercu Mister Horse deja
@@ -598,7 +868,7 @@ function useMH(el, it, cb) {
     if (frames >= 2 && Math.abs(h - expected) <= frames * 4) {
       var th = el.querySelector(".th");
       el.dataset.vsprite = url; el.dataset.vframes = String(frames);
-      th.style.backgroundImage = "url(" + url + ")";
+      th.style.backgroundImage = cssUrl(url);
       th.style.backgroundSize = "100% " + (frames * 100) + "%";
       th.style.backgroundPosition = "50% 0%";
       var g = th.querySelector(".glyph"); if (g) g.style.display = "none";
@@ -686,7 +956,7 @@ function hoverSprite(el, it) {
   if (!CACHE || !nodeReq) return;
   var th = el.querySelector(".th"), sp = cachePath("sp", keyOf(it), ".jpg");
   function attach() {
-    th.style.backgroundImage = "url(" + fileUrl(sp) + ")";
+    th.style.backgroundImage = cssUrl(fileUrl(sp));
     th.style.backgroundSize = (SPRITE_N * 100) + "% 100%";
     th.classList.add("sprite");
     var g = th.querySelector(".glyph"); if (g) g.style.display = "none";
@@ -754,9 +1024,9 @@ function unmarkTile() {
 /* Tuile actuellement affichee pour ce fichier (comparaison par chemin : un
    rescan recree les objets item). */
 function tileOf(it) {
-  var ts = $("#grid").children;
-  for (var i = 0; i < ts.length; i++) if (ts[i]._it && ts[i]._it.p === it.p) return ts[i];
-  return null;
+  var found = null;
+  vtiles.forEach(function (el) { if (!found && el._it.p === it.p) found = el; });
+  return found;
 }
 
 function syncTime() {
@@ -813,15 +1083,14 @@ function togglePlay() {
 }
 
 /* Son precedent / suivant dans la vue courante (les non-sons sont sautes).
-   Si la tuile cible n'est pas encore rendue (pagination), on rend jusqu'a elle. */
+   La grille etant virtuelle, on fait defiler jusqu'a la tuile cible. */
 function step(dir) {
   var i = -1;
   if (cur) for (var j = 0; j < view.length; j++) if (view[j].p === cur.p) { i = j; break; }
   for (var k = i + dir; k >= 0 && k < view.length; k += dir) {
     if (view[k].k !== "audio") continue;
-    while (k >= rendered && rendered < view.length) renderMore();
-    var el = tileOf(view[k]);
-    if (el) { selectTile(el); el.scrollIntoView({ block:"nearest" }); }
+    var el = ensureVisible(k);
+    if (el) selectTile(el);
     playAudio(el, view[k], null);
     return true;
   }
@@ -959,6 +1228,7 @@ function closeViewer() {
   $("#vbody").innerHTML = ""; $("#viewer").classList.remove("on"); viewerItem = null;
 }
 function selectTile(el) {
+  selPath = el._it.p;          // retrouve la selection quand la tuile est recreee
   if (selTile === el) return;
   if (selTile) selTile.classList.remove("sel");
   selTile = el; el.classList.add("sel");
@@ -976,10 +1246,20 @@ function preview(el, it, frac) {
 
 /* --------------------------------- import ------------------------------ */
 
+/* Chaine pour ExtendScript (ES3) : JSON.stringify n'echappe pas U+2028 /
+   U+2029, qui y sont des fins de ligne (erreur de syntaxe, import rate).
+   On echappe tout le non-ASCII : les noms avec emoji passent aussi. */
+function esStr(v) {
+  return JSON.stringify(String(v)).replace(/[^\x00-\x7e]/g, function (c) {
+    return "\\u" + ("000" + c.charCodeAt(0).toString(16)).slice(-4);
+  });
+}
+
 function doImport(it) {
   var bin = libs[it.lib] ? base(libs[it.lib].root) : "Mudkit";
   say("Import de " + it.n + "...");
-  evalScript("mudkitLibImport(" + JSON.stringify(it.p) + "," + JSON.stringify(action) + "," + JSON.stringify(bin) + ")")
+  pushRecent(it.p);
+  evalScript("mudkitLibImport(" + esStr(it.p) + "," + esStr(action) + "," + esStr(bin) + ")")
     .then(function (res) {
       if (res === "inserted") say(CHECK + " " + it.n + " pose sur la timeline", "ok");
       else if (res === "imported") say(CHECK + " " + it.n + " dans le chutier " + bin, "ok");
@@ -993,14 +1273,22 @@ function doImport(it) {
 
 /* --------------------------------- racines ----------------------------- */
 
-function saveRoots() { lsSet("mudkit.lib.roots", JSON.stringify(libs.map(function (l) { return l.root; }))); }
+/* Les dossiers introuvables au demarrage (disque externe debranche) restent
+   dans la liste enregistree : avant, ajouter ou retirer un autre dossier
+   pendant ce temps les effacait pour de bon. */
+function saveRoots() {
+  lsSet("mudkit.lib.roots", JSON.stringify(libs.map(function (l) { return l.root; }).concat(missing)));
+}
 
 function mountRoot(r, forceRescan, done) {
   var lib = { root:r, items:[], meta:{}, mh:{} };
-  libs.push(lib);
-  var cached = forceRescan ? null : loadIndex(r);
-  if (cached) { lib.items = cached.items; lib.meta = cached.meta || {}; lib.mh = cached.mh || {}; return done(lib, true); }
-  scan(lib, function () { done(lib, false); });
+  libs.push(lib);                        // tout de suite : l'ordre reste celui enregistre
+  if (forceRescan) return scan(lib, function () { done(lib, false); });
+  loadIndex(r, function (cached) {
+    if (lib.gone) return;
+    if (cached) { lib.items = cached.items; lib.meta = cached.meta || {}; lib.mh = cached.mh || {}; return done(lib, true); }
+    scan(lib, function () { done(lib, false); });
+  });
 }
 
 function refreshAfterMount() {
@@ -1014,13 +1302,82 @@ function pickFolder() {
   var p = res && res.data && res.data[0]; if (!p) return;
   p = p.replace(/\//g, "\\").replace(/\\+$/, "");
   for (var i = 0; i < libs.length; i++) if (libs[i].root.toLowerCase() === p.toLowerCase()) return say("Deja monte.", "err");
+  missing = missing.filter(function (m) { return m.toLowerCase() !== p.toLowerCase(); });
   say("Scan de " + p + "...");
   mountRoot(p, false, function () { saveRoots(); refreshAfterMount(); });
 }
 
-function selectedLib() {
-  if (!sel) return -1;
-  return +sel.split(":")[0];
+/* Dossier introuvable sur lequel on clique : s'il est revenu, on le monte. */
+function retryMissing(r) {
+  if (!fs.existsSync(r)) return say("Toujours introuvable : " + r, "err");
+  missing = missing.filter(function (m) { return m !== r; });
+  say("Scan de " + r + "...");
+  mountRoot(r, false, function (lib) {
+    saveRoots();
+    sel = nodeKey(libs.indexOf(lib), "");
+    lsSet("mudkit.lib.sel", sel);
+    refreshAfterMount();
+  });
+}
+
+function selectedLib() { return isNodeKey(sel) ? libOfKey(sel) : -1; }
+
+/* ------------------------------ purge du cache -------------------------- */
+
+/* Vignettes, formes d'onde, sprites et sons convertis grossissaient sans
+   limite. Une fois par jour, 2 min apres l'ouverture : au-dela de
+   CACHE_MAX, on supprime les plus anciens jusqu'a CACHE_KEEP. Ils seront
+   refaits a la demande. Plus les .part abandonnes et les index de dossiers
+   qui ne sont plus montes. Tout en asynchrone : le panneau ne gele pas. */
+var CACHE_MAX = 3 * 1024 * 1024 * 1024, CACHE_KEEP = 2 * 1024 * 1024 * 1024;
+
+function purgeCache() {
+  if (!CACHE) return;
+  if (Date.now() - (+ls("mudkit.lib.purge", "0") || 0) < 86400000) return;
+  lsSet("mudkit.lib.purge", String(Date.now()));
+  var noop = function () {};
+
+  var keep = {};
+  libs.forEach(function (l) { keep[indexFile(l.root).toLowerCase()] = 1; });
+  missing.forEach(function (r) { keep[indexFile(r).toLowerCase()] = 1; });
+  fs.readdir(CACHE, function (err, names) {
+    (err ? [] : names).forEach(function (n) {
+      var p = CACHE + "\\" + n;
+      if (/^idx-.*\.json$/i.test(n) && !keep[p.toLowerCase()]) fs.unlink(p, noop);
+      else if (/\.tmp$/i.test(n)) fs.unlink(p, noop);
+    });
+  });
+
+  var files = [], subs = ["th", "wf", "sp", "pv", "big"], dirsLeft = subs.length;
+  subs.forEach(function (sub) {
+    var d = CACHE + "\\" + sub;
+    fs.readdir(d, function (err, names) {
+      names = err ? [] : names;
+      var left = names.length;
+      if (!left) return dirDone();
+      names.forEach(function (n) {
+        var p = d + "\\" + n;
+        fs.stat(p, function (e, st) {
+          if (!e) {
+            if (/\.part\./i.test(n) && Date.now() - st.mtimeMs > 3600000) fs.unlink(p, noop);
+            else files.push({ p:p, sz:st.size, t:st.mtimeMs });
+          }
+          if (--left === 0) dirDone();
+        });
+      });
+    });
+  });
+  function dirDone() {
+    if (--dirsLeft) return;
+    var total = 0;
+    files.forEach(function (f) { total += f.sz; });
+    if (total <= CACHE_MAX) return;
+    files.sort(function (a, b) { return a.t - b.t; });
+    for (var i = 0; i < files.length && total > CACHE_KEEP; i++) {
+      fs.unlink(files[i].p, noop);
+      total -= files[i].sz;
+    }
+  }
 }
 
 /* --------------------------------- cablage ----------------------------- */
@@ -1047,8 +1404,24 @@ $("#favfilter").addEventListener("click", function () {
 $("#pick").addEventListener("click", pickFolder);
 
 $("#forget").addEventListener("click", function () {
+  if (sel === RECENTS) {                 // "-" sur Recents : on les vide
+    recents = []; lsSet("mudkit.lib.recents", "[]");
+    sel = ""; lsSet("mudkit.lib.sel", "");
+    renderTree(); redraw();
+    return say("Recents vides.", "ok");
+  }
+  if (sel.indexOf(MISSING) === 0) {      // dossier introuvable : on l'oublie
+    var r = sel.slice(MISSING.length);
+    missing = missing.filter(function (m) { return m !== r; });
+    deleteIndex(r);
+    sel = ""; lsSet("mudkit.lib.sel", ""); saveRoots();
+    return refreshAfterMount();
+  }
   var li = selectedLib();
   if (li < 0 || !libs[li]) return say("Selectionne d'abord un dossier racine dans l'arbre.", "err");
+  var lib = libs[li];
+  lib.gone = true;                       // arrete son scan et ses ecritures d'index
+  deleteIndex(lib.root);
   invalidate();
   libs.splice(li, 1); sel = ""; saveRoots();
   lsSet("mudkit.lib.sel", "");
@@ -1062,7 +1435,7 @@ $("#rescan").addEventListener("click", function () {
   invalidate();
   var n = targets.length, done = 0;
   targets.forEach(function (lib) {
-    scan(lib, function () { saveIndex(lib); if (++done === n) refreshAfterMount(); });
+    scan(lib, function () { if (++done === n) refreshAfterMount(); });   // scan() enregistre l'index
   });
 });
 
@@ -1070,6 +1443,23 @@ $("#size").addEventListener("input", function (e) {
   tileW = +e.target.value;
   document.documentElement.style.setProperty("--tw", tileW + "px");
   lsSet("mudkit.lib.tilew", String(tileW));
+  relayout();
+});
+
+/* grille virtuelle : redessin au defilement, nouvelles colonnes quand la
+   largeur change (fenetre, separateur, panneau redimensionne) */
+$("#grid").addEventListener("scroll", schedulePaint);
+if (window.ResizeObserver) new ResizeObserver(function () { relayout(); }).observe($("#grid"));
+else window.addEventListener("resize", relayout);
+
+/* filtre par duree */
+document.querySelectorAll("#durbar button").forEach(function (b) {
+  b.addEventListener("click", function () {
+    document.querySelectorAll("#durbar button").forEach(function (x) { x.classList.remove("on"); });
+    b.classList.add("on");
+    durf = b.dataset.v;
+    redraw();
+  });
 });
 
 /* lecteur */
@@ -1128,6 +1518,7 @@ $("#vbody").addEventListener("click", function (ev) {
     if (!dragging) return;
     var w = Math.max(110, Math.min(window.innerWidth * 0.6, e.clientX));
     $("#side").style.width = w + "px";
+    if (!window.ResizeObserver) relayout();
   });
   document.addEventListener("mouseup", function () {
     if (!dragging) return;
@@ -1177,6 +1568,10 @@ if (!nodeReq) {
   try { (JSON.parse(ls("mudkit.lib.favs", "[]")) || []).forEach(function (p) { favs[p] = 1; }); } catch (e) {}
   try { open = JSON.parse(ls("mudkit.lib.open", "{}")) || {}; } catch (e) { open = {}; }
   sel = ls("mudkit.lib.sel", "");
+  // anciennes cles, par position du dossier ("2:Cinematic") : on repart de zero
+  if (sel && sel !== RECENTS && sel.indexOf(MISSING) !== 0 && !isNodeKey(sel)) sel = "";
+  Object.keys(open).forEach(function (k) { if (!isNodeKey(k)) delete open[k]; });
+  try { recents = JSON.parse(ls("mudkit.lib.recents", "[]")) || []; } catch (e) { recents = []; }
   action = ls("mudkit.lib.action", "insert");
   favOnly = ls("mudkit.lib.favonly", "0") === "1";
   tileW = +ls("mudkit.lib.tilew", "116") || 116;
@@ -1193,7 +1588,9 @@ if (!nodeReq) {
   mkdirp(CACHE);
 
   var pending = savedRoots.filter(function (r) { return fs.existsSync(r); });
-  if (!pending.length) redraw();
+  missing = savedRoots.filter(function (r) { return !fs.existsSync(r); });
+  setTimeout(purgeCache, 120000);
+  if (!pending.length) { renderTree(); redraw(); }
   else {
     var left = pending.length;
     pending.forEach(function (r) {

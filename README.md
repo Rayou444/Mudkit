@@ -72,10 +72,10 @@ exactes du `.venv` (`pip freeze` sert de contraintes).
 
 | Module | Ce que ça fait |
 |---|---|
-| ⬇ Téléchargeur | YouTube, TikTok, Insta, Twitter/X, Twitch… en haute qualité (jusqu'à 4K/8K) ou audio seul (mp3, flac, wav...). File d'attente : les liens s'enchaînent automatiquement. Basé sur yt-dlp. |
+| ⬇ Téléchargeur | YouTube, TikTok, Insta, Twitter/X, Twitch… en haute qualité (jusqu'à 4K/8K) ou audio seul (mp3, flac, wav...). File d'attente : les liens s'enchaînent automatiquement, et plusieurs liens collés d'un coup partent tous en file. Cookies lus depuis le navigateur choisi dans Paramètres (Firefox conseillé) ou un `cookies.txt`. Basé sur yt-dlp, mis à jour tout seul chaque jour. |
 | ✨ Upscaler IA | Agrandit les images x2/x3/x4 en local sur ton GPU (Vulkan). 8 modèles dont les 5 du projet [Upscayl](https://github.com/upscayl/upscayl) (Standard, UltraSharp, Remacri, Art numérique, Lite). Comparateur avant/après, sortie png/jpg/webp. |
 | 🔁 Convertisseur | Images (png, jpg, webp, ico...), audio (mp3, flac, wav...) et vidéo (mp4, mkv, webm, gif...), en lot, avec progression réelle. |
-| 🗜 Compresseur | Fait tenir une vidéo sous une taille cible (10/25/50/100 Mo ou libre) — encodage x264 deux passes, définition réduite automatiquement si besoin. |
+| 🗜 Compresseur | Fait tenir une vidéo sous une taille cible (Discord 10 Mo, WhatsApp 16 Mo, e-mail 25 Mo, 50 Mo ou libre) — encodage x264 deux passes, définition réduite automatiquement si besoin. |
 | ✂ Détourage | Supprime l'arrière-plan (BiRefNet / IS-Net), PNG transparent. Même pipeline que rembg mais en onnxruntime direct (`core/cutout.py`, sortie identique au pixel près) : ~290 Mo de dépendances en moins. Modèles dans `~/.rembg/models`. |
 
 Le téléchargeur garde un **historique** (`%LOCALAPPDATA%\Mudkit\history.json`)
@@ -150,6 +150,30 @@ Composer (arborescence à gauche, grille à droite), sans limite d'éléments :
 - Scan récursif (12 niveaux) mis en cache par racine dans
   `%LOCALAPPDATA%\Mudkit\lib-cache\idx-*.json` — réouverture instantanée,
   `⟳` rescanne la racine sélectionnée (ou toutes si rien n'est sélectionné).
+  Le scan avance par tranches de 1 500 fichiers (un dossier de 40 000 sons ne
+  gèle plus le panneau), s'annule dossier par dossier (`lib.scanId`), et
+  l'index est lu / écrit en asynchrone, via un temporaire renommé.
+- **Grille virtuelle** : seules les tuiles visibles (+ 2 rangées) existent
+  dans la page, placées en absolu dans `.vbox` (`layout()`, `paint()`,
+  `place()`). Colonnes recalculées par `ResizeObserver` et par le slider.
+  La sélection et le son en cours sont retrouvés par chemin quand une tuile
+  est recréée.
+- **Filtre par durée** (`< 1 s`, `1 à 5 s`, `5 à 30 s`, `> 30 s`) au-dessus de
+  la grille. Les durées inconnues sont mesurées en tâche de fond (ffprobe,
+  `opts.bg`, abandonnées si le filtre change) puis gardées dans l'index.
+- **Récents** en tête de l'arbre : les 60 derniers fichiers posés (double-clic,
+  `+`) ou glissés. `−` sur Récents les vide.
+- Dossiers repérés **par chemin** (clés `racine|chemin`), plus par position.
+  Un dossier introuvable au démarrage (disque débranché) reste enregistré et
+  grisé dans l'arbre ; un clic le remonte s'il est revenu, `−` l'oublie.
+- **Purge du cache** une fois par jour : au-delà de 3 Go, les plus anciens
+  fichiers sont supprimés jusqu'à 2 Go, avec les `.part` et les index de
+  dossiers retirés.
+- File ffmpeg : 8 jobs max, chaque job tué après 2 min, un job abandonné
+  prévient son demandeur (`SKIPPED`).
+- yt-dlp se met à jour tout seul, au plus une fois par jour, depuis l'appli
+  ou le panneau (`python -m mudkit.updater ytdlp`), jamais pendant un
+  téléchargement ni sur le PC de dev.
 - Aperçus ffmpeg générés à la demande et cachés : forme d'onde (audio), poster
   (vidéo), et **sprite de 24 images** scrubé à la souris au survol (clips
   ≤ 45 s : `fps`+`tile` ; au-delà : 24 seeks `-ss` avant `-i` puis `hstack`,

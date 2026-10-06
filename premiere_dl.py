@@ -157,17 +157,22 @@ def main():
         opts = downloader.build_options("video", "max", "mp4", False, DEST,
                                         section)
     opts["outtmpl"] = outtmpl(mode, section)
+    # un lien de playlist ou un carrousel : seulement le 1er element (avant,
+    # tout le lot partait puis « fichier telecharge introuvable »)
+    opts["playlist_items"] = "1"
     opts["progress_hooks"] = [hook]
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
     except yt_dlp.utils.DownloadError as e:
-        if downloader.looks_like_auth_error(e) and not downloader.has_cookies():
-            raise RuntimeError(
-                f"{str(e)[:120]} | {downloader.COOKIES_HELP}") from e
+        msg = downloader.friendly_error(e)
+        if msg:
+            raise RuntimeError(msg) from e
         raise
 
+    if info.get("_type") == "playlist":
+        info = next((e for e in info.get("entries") or [] if e), {})
     requested = info.get("requested_downloads") or [{}]
     path = requested[0].get("filepath")
     if not path or not os.path.isfile(path):
