@@ -139,29 +139,141 @@ def apply(zip_path):
             meta = json.load(f)
         if int(meta.get("runtime", 0)) > (runtime() or 0):
             raise NeedFullInstall(meta.get("version"))
+        _install(tmp)
+    log.info("mise a jour appliquee : %s -> %s", __version__,
+             meta.get("version"))
+    return meta.get("version")
 
-        # Le panneau d'abord : c'est la seule copie qui peut echouer
-        # (fichier verrouille par Premiere). Dans ce cas on s'arrete avant
-        # de toucher a l'appli, pour ne pas laisser les deux outils dans des
-        # versions differentes.
+
+# ---------------------------------------------- copie avec retour arriere
+#
+# Avant, les fichiers etaient ecrases un par un sans filet : un antivirus qui
+# bloque un .py, un disque plein ou un PC qui s'eteint en pleine copie
+# laissait une appli moitie ancienne moitie nouvelle, qui ne demarrait plus
+# (et ne pouvait donc plus se mettre a jour). Maintenant :
+#   - chaque fichier remplace est d'abord sauvegarde dans BACKUP_DIR ;
+#   - chaque ecriture passe par un fichier temporaire renomme (os.replace) :
+#     un fichier est toujours entier, ancien ou nouveau ;
+#   - un manifeste note ce qui est en cours ; erreur -> recover() tout de
+#     suite ; coupure de courant -> recover() au demarrage suivant (main.py).
+
+BACKUP_DIR = os.path.join(utils.DATA_DIR, "update-backup")
+
+
+def _manifest_path():
+    return os.path.join(BACKUP_DIR, "en-cours.json")
+
+
+def _save_manifest(m):
+    # pas utils.write_json, qui avale les erreurs : ici, ne pas pouvoir noter
+    # ce qu'on va faire doit arreter la mise a jour avant qu'elle commence
+    tmp = _manifest_path() + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(m, f)
+    os.replace(tmp, _manifest_path())
+
+
+def _copy_atomic(src, dst):
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    tmp = dst + ".mkupd"
+    shutil.copy2(src, tmp)
+    os.replace(tmp, dst)
+
+
+def _install(tmp):
+    shutil.rmtree(BACKUP_DIR, ignore_errors=True)
+    os.makedirs(BACKUP_DIR)
+    m = {"ext": False, "added": []}
+    _save_manifest(m)
+    try:
+        # Le panneau d'abord : c'est la copie qui peut echouer (fichier
+        # verrouille par Premiere) ; on s'arrete alors avant de toucher a
+        # l'appli, et le panneau d'avant est remis.
         ext = os.path.join(tmp, "com.mudkit.premiere")
         if os.path.isdir(ext):
+            if os.path.isdir(EXT_DIR):
+                shutil.copytree(EXT_DIR, os.path.join(BACKUP_DIR, "ext"))
+                m["ext"] = True
+                _save_manifest(m)
             # remplacement complet (la signature couvre la liste des
             # fichiers) ; si Premiere en verrouille un, on ecrase par-dessus
             shutil.rmtree(EXT_DIR, ignore_errors=True)
             try:
                 shutil.copytree(ext, EXT_DIR, dirs_exist_ok=True)
             except (shutil.Error, OSError) as e:
-                log.error("copie du panneau Premiere : %s", e)
                 raise RuntimeError(
                     "le panneau Premiere n'a pas pu être remplacé (fichier "
                     "verrouillé) : ferme Premiere Pro puis relance la mise "
                     "à jour") from e
-        shutil.copytree(os.path.join(tmp, "app"), utils.ROOT,
+
+        app = os.path.join(tmp, "app")
+        files = [os.path.relpath(os.path.join(d, n), app)
+                 for d, _, names in os.walk(app) for n in names]
+        # main.py en dernier : c'est lui qui relance recover() au demarrage,
+        # il doit rester celui d'avant tant que la copie n'est pas finie
+        files.sort(key=lambda rel: rel == "main.py")
+        for rel in files:
+            dst = os.path.join(utils.ROOT, rel)
+            if os.path.exists(dst):
+                _copy_atomic(dst, os.path.join(BACKUP_DIR, "app", rel))
+            else:
+                m["added"].append(rel)
+                _save_manifest(m)  # AVANT d'ecrire : recover() saura l'effacer
+            _copy_atomic(os.path.join(app, rel), dst)
+    except BaseException as e:
+        log.error("mise a jour interrompue, retour a la version d'avant : %s",
+                  e, exc_info=e)
+        try:
+            recover()
+        except Exception as e2:  # noqa: BLE001 - garder l'erreur d'origine
+            log.error("retour arriere impossible : %s", e2, exc_info=e2)
+        raise
+    shutil.rmtree(BACKUP_DIR, ignore_errors=True)
+
+
+def recover():
+    """Remet la version d'avant si une mise a jour n'est pas allee au bout.
+
+    Sans effet (et quasi gratuit) s'il n'y a rien en cours. Renvoie True si
+    quelque chose a ete restaure : l'appelant doit alors redemarrer, les
+    modules deja charges pouvant venir de la version abandonnee.
+    """
+    if not os.path.isdir(BACKUP_DIR) or is_dev():
+        return False
+    try:
+        with open(_manifest_path(), encoding="utf-8") as f:
+            m = json.load(f)
+    except (OSError, ValueError):
+        # pas de manifeste = coupure avant la moindre modification
+        shutil.rmtree(BACKUP_DIR, ignore_errors=True)
+        return False
+    bk = os.path.join(BACKUP_DIR, "app")
+    touched = list(m.get("added", []))
+    for d, _, names in os.walk(bk):
+        for n in names:
+            if n.endswith(".mkupd"):  # sauvegarde coupee : original intact
+                continue
+            src = os.path.join(d, n)
+            rel = os.path.relpath(src, bk)
+            _copy_atomic(src, os.path.join(utils.ROOT, rel))
+            touched.append(rel)
+    for rel in m.get("added", []):
+        try:
+            os.remove(os.path.join(utils.ROOT, rel))
+        except OSError:
+            pass
+    for rel in touched:  # temporaires d'une ecriture coupee
+        try:
+            os.remove(os.path.join(utils.ROOT, rel) + ".mkupd")
+        except OSError:
+            pass
+    if m.get("ext") and os.path.isdir(os.path.join(BACKUP_DIR, "ext")):
+        shutil.rmtree(EXT_DIR, ignore_errors=True)
+        shutil.copytree(os.path.join(BACKUP_DIR, "ext"), EXT_DIR,
                         dirs_exist_ok=True)
-    log.info("mise a jour appliquee : %s -> %s", __version__,
-             meta.get("version"))
-    return meta.get("version")
+    shutil.rmtree(BACKUP_DIR, ignore_errors=True)
+    log.warning("mise a jour inachevee : version precedente restauree")
+    return True
 
 
 def restart():
@@ -197,6 +309,7 @@ def main(argv=None):
     """
     from . import dnsfix
     dnsfix.activate_if_needed()  # meme resolveur de secours que l'appli
+    recover()  # une mise a jour precedente coupee en pleine copie
     args = sys.argv[1:] if argv is None else argv
     cmd = args[0] if args else "check"
     if is_dev():

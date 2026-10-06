@@ -1,7 +1,6 @@
 """Compression a taille cible : videos (ffmpeg deux passes) et images."""
 import io
 import os
-import subprocess
 import tempfile
 
 from . import converter
@@ -12,30 +11,14 @@ def out_path(src, target_mb):
     folder, name = os.path.split(src)
     base, _ = os.path.splitext(name)
     label = f"{target_mb:g}Mo"
-    return os.path.join(folder, f"{base}_{label}.mp4")
+    return utils.unique_path(os.path.join(folder, f"{base}_{label}.mp4"))
 
 
-def _run_pass(cmd, duration, progress, is_cancelled, base, span):
+def _run_pass(cmd, duration, progress, is_cancelled, base, span, partial=None):
     """Execute une passe ffmpeg en remontant la progression [base, base+span]."""
-    proc = subprocess.Popen(
-        cmd, creationflags=utils.NO_WINDOW,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, encoding="utf-8", errors="replace")
-    for line in proc.stdout:
-        if is_cancelled():
-            proc.kill()
-            raise utils.CancelledError()
-        line = line.strip()
-        if duration and line.startswith("out_time_us="):
-            try:
-                done = int(line.split("=")[1]) / 1e6 / duration
-                progress(base + min(done, 1.0) * span)
-            except ValueError:
-                pass
-    _, err = proc.communicate()
-    if proc.returncode != 0:
-        tail = (err or "échec de ffmpeg").strip().splitlines()
-        raise RuntimeError(tail[-1][:300] if tail else "échec de ffmpeg")
+    utils.run_ffmpeg(
+        cmd, is_cancelled=is_cancelled, partial=partial,
+        on_time=lambda t: progress(base + min(t / duration, 1.0) * span))
 
 
 def compress_image_to_size(src, target_mb, progress, is_cancelled):
@@ -59,7 +42,7 @@ def compress_image_to_size(src, target_mb, progress, is_cancelled):
 
     folder, name = os.path.split(src)
     base, _ = os.path.splitext(name)
-    out = os.path.join(folder, f"{base}_{target_mb:g}Mo.{ext}")
+    out = utils.unique_path(os.path.join(folder, f"{base}_{target_mb:g}Mo.{ext}"))
 
     # garde la definition tant que possible, puis reduit progressivement
     steps = [(scale, q)
@@ -147,7 +130,7 @@ def compress_to_size(src, target_mb, progress, is_cancelled):
         _run_pass(common + ["-pass", "2", "-c:a", "aac",
                             "-b:a", f"{audio_kbps}k",
                             "-movflags", "+faststart", out],
-                  duration, progress, is_cancelled, 0.5, 0.5)
+                  duration, progress, is_cancelled, 0.5, 0.5, partial=out)
 
     if not os.path.isfile(out):
         raise RuntimeError("fichier de sortie manquant")

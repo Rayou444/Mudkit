@@ -57,6 +57,12 @@ exactes du `.venv` (`pip freeze` sert de contraintes).
   chaque minute).
 - Le panneau est copié en premier : si Premiere en verrouille un fichier, la
   mise à jour s'arrête avant de toucher l'appli.
+- **Retour arrière** : chaque fichier remplacé est d'abord sauvegardé dans
+  `%LOCALAPPDATA%\Mudkit\update-backup` (manifeste `en-cours.json`), chaque
+  écriture passe par un temporaire renommé. Une erreur restaure aussitôt la
+  version d'avant ; une coupure (PC éteint) est rattrapée au démarrage
+  suivant par `updater.recover()`, appelé tout en haut de `main.py` (copié
+  en dernier pour cette raison).
 - Ne sont jamais touchés : `python\`, `bin\`, `config.json`, `cookies.txt`.
 - Si `update.json` demande un runtime plus récent que
   `python\mudkit-runtime.txt`, l'appli renvoie vers l'installateur complet.

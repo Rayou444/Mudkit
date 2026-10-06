@@ -1,6 +1,5 @@
 """Logique du convertisseur (images Pillow, audio/video ffmpeg), sans interface."""
 import os
-import subprocess
 
 from .. import utils
 
@@ -30,10 +29,13 @@ def category(path):
 
 
 def out_path(src, ext):
+    """Chemin de sortie LIBRE : jamais ecraser un fichier existant (le
+    `chanson.wav` d'origine a cote du `chanson.flac` qu'on convertit, ou
+    `a.jpg` deja produit par `a.png` dans le meme lot)."""
     base, old = os.path.splitext(src)
     if old.lower() == "." + ext:
         base += "_converti"
-    return f"{base}.{ext}"
+    return utils.unique_path(f"{base}.{ext}")
 
 
 def _duration_seconds(src):
@@ -87,25 +89,12 @@ def _ffmpeg_args(src, ext):
 def _convert_media(src, target, progress, is_cancelled):
     out = out_path(src, target)
     duration = _duration_seconds(src)
-    cmd = _ffmpeg_args(src, target) + [out]
-    proc = subprocess.Popen(
-        cmd, creationflags=utils.NO_WINDOW,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, encoding="utf-8", errors="replace")
-    for line in proc.stdout:
-        if is_cancelled():
-            proc.kill()
-            raise utils.CancelledError()
-        line = line.strip()
-        if duration and line.startswith("out_time_us="):
-            try:
-                progress(min(int(line.split("=")[1]) / 1e6 / duration, 1.0))
-            except ValueError:
-                pass
-    _, err = proc.communicate()
-    if proc.returncode != 0 or not os.path.isfile(out):
-        tail = (err or "echec ffmpeg").strip().splitlines()
-        raise RuntimeError(tail[-1][:300] if tail else "echec ffmpeg")
+    utils.run_ffmpeg(
+        _ffmpeg_args(src, target) + [out],
+        on_time=(lambda t: progress(min(t / duration, 1.0))) if duration else None,
+        is_cancelled=is_cancelled, partial=out)
+    if not os.path.isfile(out):
+        raise RuntimeError("echec ffmpeg : fichier de sortie manquant")
     progress(1.0)
     return out
 

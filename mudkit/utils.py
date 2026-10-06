@@ -1,4 +1,5 @@
 """Outils communs : chemins, config, telechargement des binaires embarques."""
+import collections
 import json
 import os
 import subprocess
@@ -150,6 +151,61 @@ def write_json(path, data):
         os.replace(tmp, path)
     except OSError:
         pass
+
+
+def run_ffmpeg(cmd, on_time=None, is_cancelled=None, partial=None):
+    """Lance ffmpeg (avec `-progress pipe:1`) et suit sa progression.
+
+    stderr est vide EN CONTINU par un fil a part. Avant, il n'etait lu qu'a
+    la fin : une video un peu abimee crache des centaines d'erreurs, le
+    tuyau (~4 Ko) se remplissait, ffmpeg se bloquait, et la tache restait
+    figee pour de bon (Annuler compris).
+
+    on_time(secondes deja traitees) a chaque point de progression. Si
+    is_cancelled() devient vrai : ffmpeg est tue PUIS attendu, et
+    CancelledError est levee. Sur annulation ou echec, `partial` (le fichier
+    de sortie) est supprime : jamais de fichier tronque sous un nom propre.
+    """
+    proc = subprocess.Popen(
+        cmd, creationflags=NO_WINDOW, stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", errors="replace")
+    errors = collections.deque(maxlen=20)
+
+    def drain():
+        for line in proc.stderr:
+            if line.strip():
+                errors.append(line.strip())
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+    try:
+        for line in proc.stdout:
+            if is_cancelled and is_cancelled():
+                raise CancelledError()
+            if on_time and line.startswith("out_time_us="):
+                try:
+                    on_time(int(line.split("=", 1)[1]) / 1e6)
+                except ValueError:  # "N/A" en debut de fichier
+                    pass
+        proc.wait()
+    except BaseException:
+        proc.kill()
+        proc.wait()
+        _remove_quietly(partial)
+        raise
+    finally:
+        reader.join(timeout=5)
+    if proc.returncode != 0:
+        _remove_quietly(partial)
+        raise RuntimeError((errors[-1] if errors else "échec de ffmpeg")[:300])
+
+
+def _remove_quietly(path):
+    if path:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
 
 def unique_path(path):

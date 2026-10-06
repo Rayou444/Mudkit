@@ -6,6 +6,17 @@ import sys
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
+# Mise a jour coupee en pleine copie (PC eteint, antivirus...) : on remet la
+# version d'avant AVANT de charger le reste, qui peut etre a moitie
+# remplace, puis on relance proprement. Jamais bloquant.
+try:
+    from mudkit import updater as _upd  # noqa: E402
+    if _upd.recover():
+        _upd.restart()
+        sys.exit(0)
+except Exception:  # noqa: BLE001
+    pass
+
 from mudkit import logs  # noqa: E402
 
 # En premier : sous pythonw il n'y a pas de console, tout va au journal.

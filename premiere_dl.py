@@ -8,7 +8,6 @@ Usage : python -u premiere_dl.py <url> <h264|max|mp3>
 """
 import json
 import os
-import subprocess
 import sys
 import time
 
@@ -57,37 +56,65 @@ def needs_transcode(path):
 
 def transcode_for_premiere(path):
     """Reencode en H.264/AAC mp4 (GPU NVENC si dispo). Remplace l'original."""
-    duration = converter._duration_seconds(path)  # noqa: SLF001
     base, _ = os.path.splitext(path)
     out = base + "_h264.mp4"
+    if os.path.isfile(out):
+        # deja converti (meme video, meme mode, meme passage : le nom le
+        # garantit). Le reecrire casserait le plan deja pose dans le projet.
+        os.remove(path)
+        return out
+    duration = converter._duration_seconds(path)  # noqa: SLF001
+
+    def on_time(t):
+        if duration:
+            emit({"pct": min(t / duration, 1.0), "transcode": True})
+
+    def run(vcodec):
+        utils.run_ffmpeg(
+            [utils.ffmpeg_path(), "-y", "-v", "error",
+             "-progress", "pipe:1", "-nostats", "-i", path]
+            + vcodec
+            + ["-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "320k",
+               "-movflags", "+faststart", out],
+            on_time=on_time, partial=out)
+
+    x264 = ["-c:v", "libx264", "-preset", "medium", "-crf", "16"]
     if utils.nvenc_available():
-        vcodec = ["-c:v", "h264_nvenc", "-preset", "p5",
-                  "-rc", "vbr", "-cq", "19", "-b:v", "0"]
+        try:
+            run(["-c:v", "h264_nvenc", "-preset", "p5",
+                 "-rc", "vbr", "-cq", "19", "-b:v", "0"])
+        except RuntimeError:
+            # NVENC refuse certaines sources (au-dela de 4096 px, ex. 8K) :
+            # on refait au processeur plutot que d'echouer
+            run(x264)
     else:
-        vcodec = ["-c:v", "libx264", "-preset", "medium", "-crf", "16"]
-    cmd = ([utils.ffmpeg_path(), "-y", "-v", "error",
-            "-progress", "pipe:1", "-nostats", "-i", path]
-           + vcodec
-           + ["-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "320k",
-              "-movflags", "+faststart", out])
-    proc = subprocess.Popen(
-        cmd, creationflags=utils.NO_WINDOW,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, encoding="utf-8", errors="replace")
-    for line in proc.stdout:
-        line = line.strip()
-        if duration and line.startswith("out_time_us="):
-            try:
-                pct = min(int(line.split("=")[1]) / 1e6 / duration, 1.0)
-                emit({"pct": pct, "transcode": True})
-            except ValueError:
-                pass
-    _, err = proc.communicate()
-    if proc.returncode != 0 or not os.path.isfile(out):
-        tail = (err or "echec ffmpeg").strip().splitlines()
-        raise RuntimeError(tail[-1][:300] if tail else "echec ffmpeg")
+        run(x264)
+    if not os.path.isfile(out):
+        raise RuntimeError("echec ffmpeg : fichier de sortie manquant")
     os.remove(path)
     return out
+
+
+def _clock(sec):
+    """90 -> 1m30, 90.5 -> 1m30.5 (pas de deux-points : interdit sous Windows)."""
+    m, s = divmod(sec, 60)
+    return f"{int(m)}m{s:02.0f}" if s == int(s) else f"{int(m)}m{s:04.1f}"
+
+
+def outtmpl(mode, section):
+    """Un nom DIFFERENT par video, par mode et par passage.
+
+    Avant : `%(title)s.%(ext)s`. Un 2e extrait de la meme video (ou une
+    autre video au meme titre) tombait sur le meme nom ; yt-dlp repondait
+    « deja telecharge » et le panneau posait l'ANCIEN plan, sans erreur.
+    Meme video + meme mode + meme passage = meme fichier, reutilise : normal.
+    Titre coupe a 150 octets : les titres tres longs depassent la limite
+    de Windows.
+    """
+    tag = " (max)" if mode == "max" else ""
+    if section:
+        tag += f" ({_clock(section[0])}-{_clock(section[1])})"
+    return os.path.join(DEST, "%(title).150B [%(id)s]" + tag + ".%(ext)s")
 
 
 def main():
@@ -129,6 +156,7 @@ def main():
     else:  # max
         opts = downloader.build_options("video", "max", "mp4", False, DEST,
                                         section)
+    opts["outtmpl"] = outtmpl(mode, section)
     opts["progress_hooks"] = [hook]
 
     try:
