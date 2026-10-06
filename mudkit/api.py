@@ -41,6 +41,7 @@ class Api:
         self._window = None
         self._cancel = {}
         self._busy = set()
+        self._busy_lock = threading.Lock()
         self._update = None  # derniere reponse de updater.check()
 
     def attach(self, window):
@@ -65,10 +66,13 @@ class Api:
         Si fn plante hors de ses propres try (bug), l'evenement `crash`
         (+ le message d'erreur) est emis pour que l'interface ne reste pas
         bloquee sur « en cours »."""
-        if task in self._busy:
-            return False
-        self._busy.add(task)
-        self._cancel[task] = False
+        # verrou : deux clics tres rapprochés (deux fils pywebview) ne
+        # lancent plus deux fois la meme tache
+        with self._busy_lock:
+            if task in self._busy:
+                return False
+            self._busy.add(task)
+            self._cancel[task] = False
 
         def run():
             final = None
@@ -148,8 +152,23 @@ class Api:
         picked = self._window.create_file_dialog(folder_dlg)
         return picked[0] if picked else None
 
+    # Jamais d'executable ou de script, meme si on le demande : la page ne
+    # doit pas pouvoir lancer un programme (defense en profondeur, en plus
+    # de l'echappement des textes cote interface).
+    _RISKY_EXTS = {".exe", ".bat", ".cmd", ".com", ".ps1", ".psm1", ".vbs",
+                   ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msi", ".msp",
+                   ".scr", ".hta", ".lnk", ".url", ".cpl", ".jar", ".reg",
+                   ".pif", ".appref-ms", ".py", ".pyw"}
+
+    def _safe_target(self, path):
+        if not isinstance(path, str) or not os.path.exists(path):
+            return False
+        if os.path.isdir(path):
+            return True
+        return os.path.splitext(path)[1].lower() not in self._RISKY_EXTS
+
     def open_path(self, path):
-        if os.path.exists(path):
+        if self._safe_target(path):
             os.startfile(path)  # noqa: S606 - action demandee par l'utilisateur
             return True
         return False
@@ -161,8 +180,10 @@ class Api:
         return False
 
     def reveal_file(self, path):
-        if os.path.exists(path):
-            subprocess.Popen(["explorer", "/select,", path],
+        if isinstance(path, str) and os.path.exists(path):
+            # une seule chaine, chemin entre guillemets : sinon une virgule
+            # dans le nom coupait l'argument /select et ouvrait autre chose
+            subprocess.Popen(f'explorer /select,"{path}"',
                              creationflags=utils.NO_WINDOW)
             return True
         return False
@@ -181,9 +202,37 @@ class Api:
                 size = utils.human_size(os.path.getsize(p))
             except OSError:
                 size = "?"
+            cat = converter.category(p)
             out.append({"path": p, "name": os.path.basename(p),
-                        "size": size, "category": converter.category(p)})
+                        "size": size, "category": cat,
+                        "dims": self._dims(p) if cat == "image" else None})
         return out
+
+    @staticmethod
+    def _dims(path):
+        """« 1920×1080 » lu dans l'en-tete de l'image (rapide, sans tout
+        decoder) : l'Upscaler et le Detourage l'affichent, et « x4 » en
+        deduit la taille finale."""
+        try:
+            Image = utils.pil_image()
+            with Image.open(path) as im:
+                w, h = im.size
+            return f"{w}×{h}"
+        except Exception:  # noqa: BLE001 - format illisible : pas de taille
+            return None
+
+    def shutdown(self):
+        """Fenetre fermee : on annule tout ce qui tourne et on arrete les
+        ffmpeg / Real-ESRGAN lances par Mudkit, qui continuaient sinon en
+        arriere-plan apres la fermeture."""
+        for task in list(self._busy):
+            self._cancel[task] = True
+        try:
+            n = utils.kill_tool_children()
+            if n:
+                log.info("fermeture : %d outil(s) arrete(s)", n)
+        except Exception as e:  # noqa: BLE001 - jamais bloquant
+            log.warning("fermeture : %s", e)
 
     def paste_files(self):
         """Contenu du presse-papiers : fichiers copies, ou image (capture).
@@ -431,6 +480,14 @@ class Api:
 
     def cancel(self, task):
         self._cancel[task] = True
+        # Un passage (ou une fusion) est fait par un ffmpeg que lance yt-dlp
+        # et qui ne regarde pas l'annulation : on l'arrete. Sauf si un autre
+        # outil de Mudkit tourne aussi (on ne saurait pas lequel est lequel).
+        if task == "download" and not (self._busy & {"convert", "compress", "upscale"}):
+            try:
+                utils.kill_tool_children()
+            except Exception:  # noqa: BLE001
+                pass
         return True
 
     # ---------------------------------------------------------- upscaler
@@ -499,6 +556,7 @@ class Api:
                                 "ok": False,
                                 "error": self._err(e, f"detourage {src}")})
             self._emit({"type": "bg_done", "ok": ok, "total": len(files)})
+            cutout.release()  # le modele (~1 Go) ne reste pas en memoire
         return self._spawn("cutout", job, crash={
             "type": "bg_done", "ok": 0, "total": len(files)})
 

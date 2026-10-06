@@ -44,6 +44,19 @@ function Copy-Tree($from, $to, [string[]]$extra) {
   if ($LASTEXITCODE -ge 8) { throw "robocopy $from -> $to (code $LASTEXITCODE)" }
 }
 
+# -Publish : la release doit correspondre a ce qui est sur GitHub. On
+# verifie AVANT le long build que tout est commite et pousse.
+if ($Publish) {
+  Push-Location $repo
+  try {
+    $dirty = git status --porcelain --untracked-files=no
+    if ($dirty) { throw "des fichiers suivis ne sont pas commites :`n$dirty" }
+    git fetch -q origin master
+    $ahead = git rev-list --count origin/master..HEAD
+    if ([int]$ahead -gt 0) { throw "$ahead commit(s) pas encore pousse(s) : git push origin master" }
+  } finally { Pop-Location }
+}
+
 Write-Output "Mudkit $tag (runtime $runtime) | Python de base : $base"
 foreach ($p in $stage, $upd) { if (Test-Path $p) { Remove-Item $p -Recurse -Force } }
 foreach ($p in $zip, $updZip, $zxp) { if (Test-Path $p) { Remove-Item $p -Force } }
@@ -70,7 +83,11 @@ Copy-Tree (Join-Path $repo "assets") (Join-Path $code "assets")
 Copy-Tree $code $app
 Copy-Tree (Join-Path $repo "bin") (Join-Path $app "bin") @("/XF", "input.jpg", "input2.jpg", "onepiece_demo.mp4")
 Copy-Tree $ext (Join-Path $upd "com.mudkit.premiere")
-@{ version = $ver; runtime = [int]$runtime } | ConvertTo-Json |
+# liste des fichiers de l'appli : la mise a jour supprime ceux qui n'y sont
+# plus (module retire ou renomme), cf. updater._stale_files
+$appFiles = @(Get-ChildItem $code -Recurse -File | ForEach-Object {
+  $_.FullName.Substring($code.Length + 1).Replace('\', '/') })
+@{ version = $ver; runtime = [int]$runtime; files = $appFiles } | ConvertTo-Json -Depth 3 |
   Set-Content (Join-Path $upd "update.json") -Encoding ASCII
 
 # 3. Python embarque

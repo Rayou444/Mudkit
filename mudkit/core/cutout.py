@@ -66,6 +66,14 @@ def download_model(key, progress=None):
     return dest
 
 
+def release():
+    """Libere les modeles charges (BiRefNet pese ~1 Go en memoire) : appele
+    en fin de lot, ils restaient sinon charges tant que l'appli tournait."""
+    _sessions.clear()
+    import gc
+    gc.collect()
+
+
 def _session(key):
     if key not in _sessions:
         import onnxruntime as ort

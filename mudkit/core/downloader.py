@@ -136,9 +136,14 @@ def analyze(url):
             "thumb": thumb_data_uri(info.get("thumbnail"))}
 
 
+TITLE = "%(title).150B"
+
+
 def build_options(mode, quality, container, playlist, dest, section=None):
     opts = {
-        "outtmpl": os.path.join(dest, "%(title)s.%(ext)s"),
+        # titre coupe a 150 octets : un titre de 300 caracteres (Reddit...)
+        # depassait la limite de Windows et l'ecriture echouait
+        "outtmpl": os.path.join(dest, TITLE + ".%(ext)s"),
         "noplaylist": not playlist,
         "quiet": True,
         "noprogress": True,
@@ -210,8 +215,19 @@ def download(url, mode, quality, container, playlist, dest,
         elif d["status"] == "finished":
             progress({"phase": "processing"})
 
+    def pp_hook(d):
+        # Annuler pendant la fusion / l'extraction audio : on s'arrete a
+        # l'etape suivante au lieu d'aller au bout
+        if is_cancelled():
+            raise yt_dlp.utils.DownloadCancelled()
+
     opts = build_options(mode, quality, container, playlist, dest, section)
     opts["progress_hooks"] = [hook]
+    opts["postprocessor_hooks"] = [pp_hook]
+    if section:
+        # un passage est telecharge par ffmpeg, sans progression detaillee :
+        # l'interface affiche une barre d'attente plutot que rien
+        progress({"phase": "section"})
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             # extraction puis telechargement en deux temps (comme le fait
@@ -264,7 +280,7 @@ def _avoid_name_clash(ydl, info, dest):
     et ne ferait rien. Si le nom est pris (quelle que soit l'extension),
     on bascule sur « titre (2) », « titre (3) »..."""
     base = os.path.basename(ydl.prepare_filename(
-        info, outtmpl=os.path.join(dest, "%(title)s")))
+        info, outtmpl=os.path.join(dest, TITLE)))
     try:
         taken = {os.path.splitext(n)[0].lower() for n in os.listdir(dest)}
     except OSError:
@@ -275,7 +291,7 @@ def _avoid_name_clash(ydl, info, dest):
     while f"{base} ({n})".lower() in taken:
         n += 1
     ydl.params["outtmpl"]["default"] = os.path.join(
-        dest, f"%(title)s ({n}).%(ext)s")
+        dest, f"{TITLE} ({n}).%(ext)s")
 
 
 def _playlist_folder(ydl, info, dest):
@@ -283,9 +299,12 @@ def _playlist_folder(ydl, info, dest):
     Si le dossier existe deja (meme playlist relancee), on le reutilise :
     les videos deja presentes sont sautees par yt-dlp."""
     folder = ydl.prepare_filename(
-        info, outtmpl=os.path.join(dest, "%(title,id)s"))
+        info, outtmpl=os.path.join(dest, "%(title,id).120B"))
+    # numero devant le titre : des videos au meme titre (stories Instagram
+    # « Video by X », plusieurs « Intro ») n'etaient telechargees qu'une
+    # fois, les autres comptees comme reussies. Garde aussi l'ordre.
     ydl.params["outtmpl"]["default"] = os.path.join(
-        folder, "%(title)s.%(ext)s")
+        folder, "%(playlist_index)03d - " + TITLE + ".%(ext)s")
     return folder
 
 

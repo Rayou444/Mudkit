@@ -2,6 +2,7 @@
 import collections
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -200,6 +201,62 @@ def run_ffmpeg(cmd, on_time=None, is_cancelled=None, partial=None):
         raise RuntimeError((errors[-1] if errors else "échec de ffmpeg")[:300])
 
 
+TOOL_EXES = {"ffmpeg.exe", "ffprobe.exe", "realesrgan-ncnn-vulkan.exe"}
+
+
+def kill_tool_children():
+    """Tue les ffmpeg / ffprobe / Real-ESRGAN lances par CE processus (par
+    Mudkit ou par yt-dlp pour une fusion). Appele a la fermeture : avant, ils
+    continuaient invisibles, parfois une heure a 100 % du processeur.
+    Seulement ces outils : une video ouverte avec « Voir » reste ouverte.
+    Renvoie le nombre de processus arretes."""
+    if sys.platform != "win32":
+        return 0
+    import ctypes
+    from ctypes import wintypes
+
+    class PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                    ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t),
+                    ("th32ModuleID", wintypes.DWORD),
+                    ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD),
+                    ("pcPriClassBase", ctypes.c_long),
+                    ("dwFlags", wintypes.DWORD),
+                    ("szExeFile", ctypes.c_wchar * 260)]
+
+    k32 = ctypes.windll.kernel32
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+    snap = k32.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
+    if not snap or snap == wintypes.HANDLE(-1).value:
+        return 0
+    me, victims = os.getpid(), []
+    entry = PROCESSENTRY32W()
+    entry.dwSize = ctypes.sizeof(entry)
+    ok = k32.Process32FirstW(snap, ctypes.byref(entry))
+    while ok:
+        if (entry.th32ParentProcessID == me
+                and entry.szExeFile.lower() in TOOL_EXES):
+            victims.append(entry.th32ProcessID)
+        ok = k32.Process32NextW(snap, ctypes.byref(entry))
+    k32.CloseHandle(snap)
+    for pid in victims:
+        h = k32.OpenProcess(0x0001, False, pid)  # PROCESS_TERMINATE
+        if h:
+            k32.TerminateProcess(h, 1)
+            k32.CloseHandle(h)
+    return len(victims)
+
+
 def _remove_quietly(path):
     if path:
         try:
@@ -268,13 +325,16 @@ def install_ffmpeg(progress=None):
                 last_err = e
         if last_err is not None:
             raise last_err
+        # extrait a cote puis renomme : une installation coupee ne laisse
+        # pas un ffmpeg.exe tronque que has_ffmpeg() croirait valide
         with zipfile.ZipFile(zip_path) as zf:
             for member in zf.namelist():
                 base = os.path.basename(member)
                 if base in ("ffmpeg.exe", "ffprobe.exe"):
-                    with zf.open(member) as src, \
-                            open(os.path.join(BIN_DIR, base), "wb") as dst:
-                        dst.write(src.read())
+                    part = os.path.join(BIN_DIR, base + ".part")
+                    with zf.open(member) as src, open(part, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+                    os.replace(part, os.path.join(BIN_DIR, base))
     if not has_ffmpeg():
         raise RuntimeError("ffmpeg.exe introuvable dans l'archive")
 
@@ -319,7 +379,20 @@ def install_realesrgan(progress=None):
     with tempfile.TemporaryDirectory() as tmp:
         zip_path = os.path.join(tmp, "realesrgan.zip")
         _download(REALESRGAN_URL, zip_path, progress)
+        # extrait a part, puis mis en place fichier par fichier, l'exe en
+        # dernier : coupee en route, l'installation reste « absente »
+        # (has_realesrgan) au lieu d'un moteur a moitie copie
+        staged = os.path.join(tmp, "x")
         with zipfile.ZipFile(zip_path) as zf:
-            zf.extractall(realesrgan_dir())
+            zf.extractall(staged)
+        files = [os.path.relpath(os.path.join(d, n), staged)
+                 for d, _, names in os.walk(staged) for n in names]
+        files.sort(key=lambda rel: rel.lower().endswith(".exe"))
+        for rel in files:
+            dst = os.path.join(realesrgan_dir(), rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            # copie + renommage : %TEMP% peut etre sur un autre disque
+            shutil.copyfile(os.path.join(staged, rel), dst + ".part")
+            os.replace(dst + ".part", dst)
     if not has_realesrgan():
         raise RuntimeError("realesrgan-ncnn-vulkan.exe introuvable dans l'archive")

@@ -139,7 +139,7 @@ def apply(zip_path):
             meta = json.load(f)
         if int(meta.get("runtime", 0)) > (runtime() or 0):
             raise NeedFullInstall(meta.get("version"))
-        _install(tmp)
+        _install(tmp, meta.get("files"))
     log.info("mise a jour appliquee : %s -> %s", __version__,
              meta.get("version"))
     return meta.get("version")
@@ -180,7 +180,31 @@ def _copy_atomic(src, dst):
     os.replace(tmp, dst)
 
 
-def _install(tmp):
+# Ce que l'appli possede et peut donc nettoyer : jamais python\, bin\,
+# config.json ni cookies.txt.
+_OWNED_DIRS = ("mudkit", "assets")
+_OWNED_FILES = ("main.py", "premiere_dl.py", "Mudkit.bat", "requirements.txt",
+                "README.md")
+
+
+def _stale_files(listed):
+    """Fichiers de l'appli installee absents de la nouvelle version : un
+    module supprime ou renomme restait sinon sur le disque, et pouvait
+    encore etre importe (comportement different du PC de dev)."""
+    keep = {f.replace("/", os.sep).lower() for f in listed}
+    stale = [f for f in _OWNED_FILES
+             if f.lower() not in keep and os.path.isfile(os.path.join(utils.ROOT, f))]
+    for top in _OWNED_DIRS:
+        for d, dirs, names in os.walk(os.path.join(utils.ROOT, top)):
+            dirs[:] = [x for x in dirs if x != "__pycache__"]
+            for n in names:
+                rel = os.path.relpath(os.path.join(d, n), utils.ROOT)
+                if rel.lower() not in keep:
+                    stale.append(rel)
+    return stale
+
+
+def _install(tmp, listed=None):
     shutil.rmtree(BACKUP_DIR, ignore_errors=True)
     os.makedirs(BACKUP_DIR)
     m = {"ext": False, "added": []}
@@ -220,6 +244,12 @@ def _install(tmp):
                 m["added"].append(rel)
                 _save_manifest(m)  # AVANT d'ecrire : recover() saura l'effacer
             _copy_atomic(os.path.join(app, rel), dst)
+        # les fichiers retires de la version (liste publiee dans update.json
+        # par build.ps1) ; sauvegardes d'abord, recover() les remet
+        for rel in _stale_files(listed) if listed else ():
+            _copy_atomic(os.path.join(utils.ROOT, rel),
+                         os.path.join(BACKUP_DIR, "app", rel))
+            os.remove(os.path.join(utils.ROOT, rel))
     except BaseException as e:
         log.error("mise a jour interrompue, retour a la version d'avant : %s",
                   e, exc_info=e)
@@ -274,6 +304,31 @@ def recover():
     shutil.rmtree(BACKUP_DIR, ignore_errors=True)
     log.warning("mise a jour inachevee : version precedente restauree")
     return True
+
+
+# --------------------------------------------------- panneau Premiere
+
+def ensure_cep_debug():
+    """Le panneau est signe avec un certificat local : Premiere ne le charge
+    qu'avec PlayerDebugMode=1 pour SA version de CEP. L'installateur ne
+    couvrait que CEP 9 a 16 ; une future version de Premiere (CEP 17+)
+    l'aurait refuse sans message. On complete donc jusqu'a CEP 25 a chaque
+    demarrage (cles utilisateur, sans droits administrateur)."""
+    if sys.platform != "win32":
+        return
+    import winreg
+    for v in range(9, 26):
+        try:
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER,
+                                  rf"Software\Adobe\CSXS.{v}") as k:
+                try:
+                    if winreg.QueryValueEx(k, "PlayerDebugMode")[0] == "1":
+                        continue
+                except OSError:
+                    pass
+                winreg.SetValueEx(k, "PlayerDebugMode", 0, winreg.REG_SZ, "1")
+        except OSError:
+            pass
 
 
 # ------------------------------------------------------------- yt-dlp
@@ -345,7 +400,9 @@ def restart():
         args.append("-E")
     if sys.flags.no_user_site:
         args.append("-s")
-    args.append(os.path.join(utils.ROOT, "main.py"))
+    # --restart : le nouveau processus attend que celui-ci soit ferme au lieu
+    # de se croire en double (une seule instance, cf. main.py)
+    args += [os.path.join(utils.ROOT, "main.py"), "--restart"]
     DETACHED = 0x00000008 | 0x00000200  # DETACHED_PROCESS | NEW_PROCESS_GROUP
     subprocess.Popen(args, cwd=utils.ROOT, creationflags=DETACHED,
                      close_fds=True)

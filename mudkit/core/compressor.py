@@ -34,7 +34,12 @@ def compress_image_to_size(src, target_mb, progress, is_cancelled):
         raise RuntimeError(
             f"déjà sous la cible ({utils.human_size(orig)}), rien à faire")
 
+    from PIL import ImageOps
     with Image.open(src) as im:
+        # photo de telephone en portrait : appliquer l'orientation EXIF
+        im = ImageOps.exif_transpose(im)
+        if im.mode.startswith("I") or im.mode == "F":  # 16 bits -> 8 bits
+            im = converter._mode_for(im, "jpg")  # noqa: SLF001 - meme paquet
         has_alpha = (im.mode in ("RGBA", "LA")
                      or (im.mode == "P" and "transparency" in im.info))
         img = im.convert("RGBA" if has_alpha else "RGB")
@@ -75,9 +80,10 @@ def compress_image_to_size(src, target_mb, progress, is_cancelled):
 
 def compress_any(src, target_mb, progress, is_cancelled):
     """Compresse une video ou une image selon le type du fichier."""
-    if converter.category(src) == "image":
+    if converter.category(src) == "image" and not converter.is_animated_gif(src):
         return compress_image_to_size(src, target_mb, progress, is_cancelled)
-    if converter.category(src) == "video":
+    # un GIF anime part en mp4 : avant, il devenait un JPEG d'une seule image
+    if converter.category(src) == "video" or converter.is_animated_gif(src):
         return compress_to_size(src, target_mb, progress, is_cancelled)
     raise RuntimeError("ce type de fichier ne se compresse pas ici "
                        "(videos et images seulement)")
@@ -88,26 +94,48 @@ def compress_to_size(src, target_mb, progress, is_cancelled):
 
     Deux passes x264 : la 1re analyse la video, la 2e encode au debit
     calcule pour viser la taille cible (marge de 6 % pour le conteneur).
+    Si le resultat depasse quand meme (conteneur, pics), on recommence avec
+    un debit reduit d'autant : la video « 10 Mo » doit vraiment passer.
     """
     if not utils.has_ffmpeg():
         raise RuntimeError("ffmpeg n'est pas installé")
+    target = target_mb * 1024 * 1024
     orig = os.path.getsize(src)
-    if orig <= target_mb * 1024 * 1024:
+    if orig <= target:
         raise RuntimeError(
             f"déjà sous la cible ({utils.human_size(orig)}), rien à faire")
     duration = converter._duration_seconds(src)  # noqa: SLF001 - meme paquet
     if not duration:
         raise RuntimeError("durée de la vidéo introuvable")
+    _, acodec, trc = converter.probe_streams(src)
 
     total_kbps = target_mb * 8192 * 0.94 / duration
-    audio_kbps = 128 if total_kbps > 1000 else 96 if total_kbps > 400 else 64
+    audio_kbps = 0 if acodec is None else (
+        128 if total_kbps > 1000 else 96 if total_kbps > 400 else 64)
     video_kbps = total_kbps - audio_kbps
     if video_kbps < 30:
         raise RuntimeError(
             f"cible trop petite pour {duration:.0f} s de vidéo, "
             "vise une taille plus grande")
 
-    # reduit la definition si le debit est trop maigre pour la source
+    out = out_path(src, target_mb)
+    for attempt in range(3):
+        _two_pass(src, out, duration, video_kbps, audio_kbps, trc,
+                  progress, is_cancelled)
+        size = os.path.getsize(out)
+        if size <= target:
+            break
+        video_kbps *= target / size * 0.97
+        if video_kbps < 30:
+            break
+    progress(1.0)
+    return out, os.path.getsize(out)
+
+
+def _two_pass(src, out, duration, video_kbps, audio_kbps, trc, progress,
+              is_cancelled):
+    # definition reduite si le debit est trop maigre pour la source. Sur le
+    # PETIT cote : avant, une video portrait 1080x1920 tombait en 608x1080
     scale = None
     if video_kbps < 300:
         scale = 480
@@ -115,24 +143,28 @@ def compress_to_size(src, target_mb, progress, is_cancelled):
         scale = 720
     elif video_kbps < 2200:
         scale = 1080
+    filters = []
+    if converter.is_hdr(trc):
+        filters.append(converter.TONEMAP)   # HDR iPhone : plus de couleurs delavees
+    if scale:
+        filters.append(f"scale=w='if(gt(iw,ih),-2,min(iw,{scale}))'"
+                       f":h='if(gt(iw,ih),min(ih,{scale}),-2)'")
+    # yuv420p : sinon une source 10 bits donne du H.264 High 10, illisible
+    # dans Discord, WhatsApp et les navigateurs
+    filters.append("format=yuv420p")
 
-    out = out_path(src, target_mb)
     with tempfile.TemporaryDirectory() as tmp:
         common = [utils.ffmpeg_path(), "-y", "-v", "error",
                   "-progress", "pipe:1", "-nostats", "-i", src,
                   "-c:v", "libx264", "-b:v", f"{video_kbps:.0f}k",
-                  "-preset", "medium",
+                  "-preset", "medium", "-vf", ",".join(filters),
                   "-passlogfile", os.path.join(tmp, "ff2pass")]
-        if scale:
-            common += ["-vf", f"scale=-2:'min(ih,{scale})'"]
+        audio = (["-an"] if not audio_kbps
+                 else ["-c:a", "aac", "-b:a", f"{audio_kbps}k"])
         _run_pass(common + ["-pass", "1", "-an", "-f", "null", "-"],
                   duration, progress, is_cancelled, 0.0, 0.5)
-        _run_pass(common + ["-pass", "2", "-c:a", "aac",
-                            "-b:a", f"{audio_kbps}k",
-                            "-movflags", "+faststart", out],
+        _run_pass(common + ["-pass", "2"] + audio
+                  + ["-movflags", "+faststart", out],
                   duration, progress, is_cancelled, 0.5, 0.5, partial=out)
-
     if not os.path.isfile(out):
         raise RuntimeError("fichier de sortie manquant")
-    progress(1.0)
-    return out, os.path.getsize(out)

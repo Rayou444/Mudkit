@@ -29,33 +29,25 @@ def emit(obj):
     print(json.dumps(obj), flush=True)
 
 
-def probe_codecs(path):
-    """Retourne (codec video, codec audio) du fichier (None si absent)."""
-    r = utils.run_hidden([utils.ffprobe_path(), "-v", "error",
-                          "-show_entries", "stream=codec_type,codec_name",
-                          "-of", "json", path])
-    v = a = None
-    for s in json.loads(r.stdout or "{}").get("streams", []):
-        if s.get("codec_type") == "video" and v is None:
-            v = s.get("codec_name")
-        elif s.get("codec_type") == "audio" and a is None:
-            a = s.get("codec_name")
-    return v, a
-
-
 def needs_transcode(path):
     if os.path.splitext(path)[1].lower() != ".mp4":
         return True
-    v, a = probe_codecs(path)
+    v, a, trc = converter.probe_streams(path)
     if v and v not in VIDEO_OK:
         return True
     if a and a not in AUDIO_OK:
         return True
-    return False
+    return converter.is_hdr(trc)
 
 
 def transcode_for_premiere(path):
-    """Reencode en H.264/AAC mp4 (GPU NVENC si dispo). Remplace l'original."""
+    """Rend le fichier importable dans Premiere (mp4 H.264/AAC). Remplace
+    l'original.
+
+    Le moins de travail possible : si la video est deja en H.264 / HEVC et
+    seul le conteneur (mkv, webm) ou l'audio (Opus) gene, on garde l'image
+    telle quelle (quelques secondes au lieu de minutes, aucune perte). Sinon
+    reencodage (GPU NVENC si dispo), avec conversion HDR -> SDR si besoin."""
     base, _ = os.path.splitext(path)
     out = base + "_h264.mp4"
     if os.path.isfile(out):
@@ -64,31 +56,42 @@ def transcode_for_premiere(path):
         os.remove(path)
         return out
     duration = converter._duration_seconds(path)  # noqa: SLF001
+    v, a, trc = converter.probe_streams(path)
+    hdr = converter.is_hdr(trc)
 
     def on_time(t):
         if duration:
             emit({"pct": min(t / duration, 1.0), "transcode": True})
 
-    def run(vcodec):
+    def run(vcodec, acodec):
         utils.run_ffmpeg(
             [utils.ffmpeg_path(), "-y", "-v", "error",
              "-progress", "pipe:1", "-nostats", "-i", path]
-            + vcodec
-            + ["-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "320k",
-               "-movflags", "+faststart", out],
+            + vcodec + acodec + ["-movflags", "+faststart", out],
             on_time=on_time, partial=out)
 
-    x264 = ["-c:v", "libx264", "-preset", "medium", "-crf", "16"]
-    if utils.nvenc_available():
+    audio = (["-c:a", "copy"] if a in AUDIO_OK or a is None
+             else ["-c:a", "aac", "-b:a", "320k"])
+    copied = False
+    if v in ("h264", "hevc", "mpeg4") and not hdr:   # acceptes tels quels en mp4
         try:
-            run(["-c:v", "h264_nvenc", "-preset", "p5",
-                 "-rc", "vbr", "-cq", "19", "-b:v", "0"])
+            run(["-c:v", "copy"] + (["-tag:v", "hvc1"] if v == "hevc" else []), audio)
+            copied = True
         except RuntimeError:
-            # NVENC refuse certaines sources (au-dela de 4096 px, ex. 8K) :
-            # on refait au processeur plutot que d'echouer
-            run(x264)
-    else:
-        run(x264)
+            pass  # conteneur recalcitrant : on reencode
+    if not copied:
+        vf = ["-vf", converter.TONEMAP if hdr else "format=yuv420p"]
+        x264 = ["-c:v", "libx264", "-preset", "medium", "-crf", "16"] + vf
+        if utils.nvenc_available():
+            try:
+                run(["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr",
+                     "-cq", "19", "-b:v", "0"] + vf, audio)
+            except RuntimeError:
+                # NVENC refuse certaines sources (au-dela de 4096 px, ex. 8K) :
+                # on refait au processeur plutot que d'echouer
+                run(x264, audio)
+        else:
+            run(x264, audio)
     if not os.path.isfile(out):
         raise RuntimeError("echec ffmpeg : fichier de sortie manquant")
     os.remove(path)

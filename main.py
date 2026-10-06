@@ -22,7 +22,7 @@ from mudkit import logs  # noqa: E402
 # En premier : sous pythonw il n'y a pas de console, tout va au journal.
 logs.setup()
 
-from mudkit import dnsfix, notify, utils  # noqa: E402
+from mudkit import dnsfix, notify, updater, utils  # noqa: E402
 
 # Resolveur tolerant aux pannes DNS (bascule DoH automatique).
 dnsfix.activate_if_needed()
@@ -57,10 +57,30 @@ def _set_window_icon():
     IMAGE_ICON, LR_LOADFROMFILE = 1, 0x10
     WM_SETICON, ICON_SMALL, ICON_BIG = 0x0080, 0, 1
 
+    user32.FindWindowExW.restype = wintypes.HWND
+    user32.FindWindowExW.argtypes = [wintypes.HWND, wintypes.HWND,
+                                     wintypes.LPCWSTR, wintypes.LPCWSTR]
+    user32.GetWindowThreadProcessId.argtypes = [
+        wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+
+    def ours():
+        # toutes les fenetres titrees « Mudkit », mais seulement celle de CE
+        # processus : un Explorateur ouvert sur Videos\Mudkit porte le meme
+        # titre et recevait l'icone a la place
+        hwnd = None
+        while True:
+            hwnd = user32.FindWindowExW(None, hwnd, None, "Mudkit")
+            if not hwnd:
+                return None
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if pid.value == os.getpid():
+                return hwnd
+
     def job():
         hwnd = None
         for _ in range(100):  # attend la creation de la fenetre (max 10 s)
-            hwnd = user32.FindWindowW(None, "Mudkit")
+            hwnd = ours()
             if hwnd:
                 break
             time.sleep(0.1)
@@ -119,6 +139,12 @@ def _window_geometry():
         ctypes.windll.user32.SetProcessDPIAware()  # meme reglage que pywebview
         sw = ctypes.windll.user32.GetSystemMetrics(0)
         sh = ctypes.windll.user32.GetSystemMetrics(1)
+        # pywebview attend des pixels LOGIQUES et les multiplie par
+        # l'echelle d'affichage : a 125 %, des pixels physiques donnaient
+        # une fenetre plus grande que l'ecran, decalee a chaque lancement
+        scale = ctypes.windll.user32.GetDpiForSystem() / 96.0
+        if scale > 0:
+            sw, sh = int(sw / scale), int(sh / scale)
     except Exception:  # noqa: BLE001
         sw, sh = 1920, 1080
 
@@ -133,8 +159,9 @@ def _window_geometry():
     return w, h, x, y
 
 
-def _on_closing(window):
+def _on_closing(window, api):
     notify.cleanup()
+    api.shutdown()
     try:
         utils.update_config(window={
             "w": int(window.width), "h": int(window.height),
@@ -147,11 +174,50 @@ def _post_start(window):
     _set_window_icon()
 
 
+_instance_mutex = None
+
+
+def _single_instance():
+    """Un seul Mudkit a la fois : deux fenetres ecrivaient chacune
+    l'historique et la config et perdaient les ecritures de l'autre.
+    Lance une 2e fois, Mudkit ramene la fenetre deja ouverte au premier
+    plan et s'arrete. Apres une mise a jour (--restart), le nouveau
+    processus attend que l'ancien ait fini de se fermer."""
+    global _instance_mutex
+    from ctypes import wintypes
+    k32, user32 = ctypes.windll.kernel32, ctypes.windll.user32
+    k32.CreateMutexW.restype = wintypes.HANDLE
+    k32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+    k32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    _instance_mutex = k32.CreateMutexW(None, True, "Local\\MudkitApp")
+    if k32.GetLastError() != 183:  # ERROR_ALREADY_EXISTS
+        return True
+    if "--restart" in sys.argv:
+        k32.WaitForSingleObject(_instance_mutex, 20000)  # l'ancien se ferme
+        return True
+    user32.FindWindowW.restype = wintypes.HWND
+    hwnd = user32.FindWindowW(None, "Mudkit")
+    if hwnd:
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        user32.SetForegroundWindow(hwnd)
+    return False
+
+
 def main():
+    try:
+        if not _single_instance():
+            return
+    except Exception:  # noqa: BLE001 - jamais bloquant
+        pass
     try:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
             "Rayan.Mudkit")
     except Exception:  # noqa: BLE001
+        pass
+
+    try:  # le panneau Premiere reste chargeable par les futures versions
+        updater.ensure_cep_debug()
+    except Exception:  # noqa: BLE001 - jamais bloquant
         pass
 
     api = Api()
@@ -167,8 +233,11 @@ def main():
     )
     api.attach(window)
     window.events.loaded += lambda *a: _wire_drops(window, api)
-    window.events.closing += lambda *a: _on_closing(window)
-    webview.start(_post_start, window, http_server=True)
+    window.events.closing += lambda *a: _on_closing(window, api)
+    # stockage persistant (pas de mode prive) : l'interface y garde le theme
+    # pour l'appliquer avant le premier affichage, sans flash clair
+    webview.start(_post_start, window, http_server=True, private_mode=False,
+                  storage_path=os.path.join(utils.DATA_DIR, "webview"))
 
 
 if __name__ == "__main__":

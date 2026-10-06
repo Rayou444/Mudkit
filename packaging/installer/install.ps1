@@ -47,7 +47,7 @@ New-Item -ItemType Directory -Force (Split-Path $extDest) | Out-Null
 Copy-Item (Join-Path $here "com.mudkit.premiere") $extDest -Recurse
 # Certificat auto-signe sans horodatage : PlayerDebugMode evite que Premiere
 # refuse le panneau (meme reglage que sur le PC de dev)
-foreach ($v in 9..16) {
+foreach ($v in 9..25) {   # CEP 9 a 25 : les futures versions de Premiere comprises
   $k = "HKCU:\Software\Adobe\CSXS.$v"
   if (-not (Test-Path $k)) { New-Item $k -Force | Out-Null }
   Set-ItemProperty $k -Name PlayerDebugMode -Value "1" -Type String
