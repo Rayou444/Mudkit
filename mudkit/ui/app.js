@@ -202,9 +202,16 @@ const DROP_ROUTES = {
   "#bg-drop": (p) => bgAddPaths(p),
 };
 
+/* Apercus 1600 px en base64 (~0,5 Mo chacun) : 30 au plus en memoire, les
+   plus anciens partent. Avant, le cache ne se vidait jamais tant que
+   l'appli restait ouverte. */
+const PREVIEW_MAX = 30;
 async function preview(path) {
-  if (!previewCache.has(path))
+  if (!previewCache.has(path)) {
     previewCache.set(path, await api("preview", path));
+    while (previewCache.size > PREVIEW_MAX)
+      previewCache.delete(previewCache.keys().next().value);
+  }
   return previewCache.get(path);
 }
 

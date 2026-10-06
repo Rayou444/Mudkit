@@ -136,7 +136,11 @@ function clock(s) {
   if (h) return h + ":" + ("0" + (m % 60)).slice(-2) + ":" + ("0" + (s % 60)).slice(-2);
   return m + ":" + ("0" + (s % 60)).slice(-2);
 }
-function say(msg, cls) { var el = $("#libstatus"); el.textContent = msg; el.className = "msg " + (cls || ""); }
+function say(msg, cls) {
+  var el = $("#libstatus");
+  el.textContent = msg; el.title = msg;   // message entier au survol s'il est coupe
+  el.className = "msg " + (cls || "");
+}
 
 function evalScript(script) {
   return new Promise(function (resolve) {
@@ -253,10 +257,13 @@ function deleteIndex(r) { fs.unlink(indexFile(r), function () {}); }
    dossier tout juste ajoute pouvait sinon disparaitre au redemarrage). */
 var SCAN_SLICE = 1500;       // entrees traitees par tranche
 
-function scan(lib, after) {
+/* Le resultat est construit a part puis remplace l'ancien d'un coup : la
+   grille reste utilisable pendant un rescan, et quiet=true (rescan de fond)
+   n'affiche rien. after(changed) : changed = la liste des fichiers a bouge. */
+function scan(lib, after, quiet) {
   var mine = lib.scanId = (lib.scanId || 0) + 1;
-  lib.items = [];
-  lib.mh = {};               // cle "rel/nom.ext" en minuscules -> chemin d'apercu
+  var items = [];
+  var mh = {};               // cle "rel/nom.ext" en minuscules -> chemin d'apercu
   /* mh sur une entree de file = { base, sub } : on est DANS un dossier
      d'apercus Mister Horse ; base = rel du dossier qui le contient, sub = le
      chemin parcouru a l'interieur. Le media source est donc base/sub/<nom>. */
@@ -298,25 +305,55 @@ function scan(lib, after) {
           if (!MH_EXT_RE.test(nm)) continue;
           var srcName = nm.replace(MH_EXT_RE, "");
           var k2 = [cur.mh.base, cur.mh.sub, srcName].filter(Boolean).join("/").toLowerCase();
-          lib.mh[k2] = full; nPrev++;
+          mh[k2] = full; nPrev++;
           continue;
         }
 
         var e = ext(nm), k = EXT[e];
         if (!k) continue;
         var st; try { st = fs.statSync(full); } catch (er) { continue; }
-        lib.items.push({ p:full, n:nm, e:e, k:k, rel:cur.rel, sz:st.size, mt:st.mtimeMs | 0 });
+        items.push({ p:full, n:nm, e:e, k:k, rel:cur.rel, sz:st.size, mt:st.mtimeMs | 0 });
       }
       if (i >= ents.length) ents = null;
     }
-    say("Scan... " + lib.items.length + " fichiers, " + seenDirs + " dossiers" +
-        (nPrev ? " (" + nPrev + " apercus Mister Horse reutilisables)" : ""));
+    if (!quiet)
+      say("Scan... " + items.length + " fichiers, " + seenDirs + " dossiers" +
+          (nPrev ? " (" + nPrev + " apercus Mister Horse reutilisables)" : ""));
     if (ents || dirs.length) return setTimeout(step, 0);
-    lib.items.sort(function (a, b) { return a.rel === b.rel ? a.n.localeCompare(b.n) : a.rel.localeCompare(b.rel); });
-    saveIndex(lib);
-    after();
+    items.sort(function (a, b) { return a.rel === b.rel ? a.n.localeCompare(b.n) : a.rel.localeCompare(b.rel); });
+    var changed = items.length !== lib.items.length;
+    for (var c = 0; !changed && c < items.length; c++)
+      changed = items[c].p !== lib.items[c].p || items[c].mt !== lib.items[c].mt;
+    lib.items = items; lib.mh = mh;
+    if (changed || !quiet) saveIndex(lib);
+    after(changed);
   }
   setTimeout(step, 0);
+}
+
+/* Nouveaux fichiers visibles tout seuls (y compris ceux que le panneau
+   vient de telecharger) : un rescan silencieux quelques secondes apres
+   l'ouverture, puis a chaque changement signale par Windows dans le
+   dossier (fs.watch recursif). Avant, il fallait cliquer sur Rescanner. */
+function quietRescan(lib, delay) {
+  clearTimeout(lib.rescanTimer);
+  lib.rescanTimer = setTimeout(function () {
+    if (lib.gone) return;
+    scan(lib, function (changed) {
+      if (!changed || lib.gone) return;
+      rebuildAll(); renderTree(); redraw(true, true);
+    }, true);
+  }, delay);
+}
+function watchLib(lib) {
+  try {
+    lib.watcher = fs.watch(lib.root, { recursive:true }, function (evt, name) {
+      // un apercu Mister Horse ou un fichier temporaire ne compte pas
+      if (name && (MH_DIR_RE.test(String(name).split(/[\\\/]/)[0]) || /\.(tmp|part)$/i.test(name))) return;
+      quietRescan(lib, 4000);
+    });
+    lib.watcher.on("error", function () {});   // disque debranche : on laisse
+  } catch (e) { /* lecteur reseau sans surveillance : rescan au demarrage seulement */ }
 }
 
 /* Apercu deja produit par Mister Horse pour cet item, ou null. */
@@ -879,19 +916,50 @@ function useMH(el, it, cb) {
   img.src = url;
 }
 
+/* Vignettes ecrites d'abord dans un .part puis renommees : un ffmpeg tue en
+   route (delai max, fermeture de Premiere) laissait une image tronquee que
+   le cache servait ensuite pour toujours. */
+function partOf(out) { return out.replace(/(\.[a-z0-9]+)$/i, ".part$1"); }
+function settle(err, part, out) {
+  if (err) { fs.unlink(part, function () {}); return false; }
+  try { fs.renameSync(part, out); return true; } catch (e) { return false; }
+}
+
+/* Fichier dont la vignette a echoue (corrompu, format exotique) : on ne
+   relance plus ffmpeg a chaque defilement. Memorise dans l'index avec la
+   cle du fichier (chemin + date + taille) : modifie, il est retente. */
+function thumbFailed(it) {
+  var lib = libs[it.lib], m = lib && lib.meta[it.p];
+  return !!(m && m.nothumb && m.nothumb === keyOf(it));
+}
+function markThumbFailed(it, err) {
+  if (err === SKIPPED) return;           // abandonne, pas rate
+  metaOf(it).nothumb = keyOf(it);
+  saveIndexSoon(libs[it.lib]);
+}
+
 function thumbGenerate(el) {
   var it = el._it; if (!it) return;
   if (it.k === "mogrt") return;      // rien a extraire : on garde le glyphe
+  if (thumbFailed(it)) {
+    if (it.k !== "image") probeInfo(it, function (m) { setDur(el, m.dur); });
+    return;
+  }
   var key = keyOf(it);
 
   if (it.k === "image") {
-    if (WEB_IMAGE[it.e] && it.sz < 6 * 1024 * 1024) return setBg(el, fileUrl(it.p));
-    var out = cachePath("th", key, ".jpg");
+    /* Petite image : affichee telle quelle. Au-dela, une miniature 320 px
+       en cache : une photo de 24 Mpx occupait ~96 Mo une fois decodee dans
+       la grille. Les GIF passent aussi par une miniature fixe (sinon ils
+       s'animaient tous en meme temps). */
+    if (WEB_IMAGE[it.e] && it.e !== "gif" && it.sz < 400 * 1024) return setBg(el, fileUrl(it.p));
+    var out = cachePath("th", key, ".jpg"), part = partOf(out);
     if (fs.existsSync(out)) return setBg(el, fileUrl(out));
     run(FFMPEG, ["-v","error","-i",it.p,"-frames:v","1","-vf",
-      "scale=320:180:force_original_aspect_ratio=increase,crop=320:180","-q:v","4","-y",out],
-      function (err) { if (!err && fs.existsSync(out)) setBg(el, fileUrl(out)); },
-      { el:el, first:true });
+      "scale=320:180:force_original_aspect_ratio=increase,crop=320:180","-q:v","4","-y",part],
+      function (err) {
+        if (settle(err, part, out)) setBg(el, fileUrl(out)); else markThumbFailed(it, err);
+      }, { el:el, first:true });
     return;
   }
   if (it.k === "audio") return waveform(el, it, key);
@@ -900,24 +968,26 @@ function thumbGenerate(el) {
   probeInfo(it, function (m) {
     setDur(el, m.dur);
     if (!m.vid) { demoteToAudio(it, el); return waveform(el, it, key); }
-    var po = cachePath("th", key, ".jpg");
+    var po = cachePath("th", key, ".jpg"), part = partOf(po);
     if (fs.existsSync(po)) { el.dataset.poster = fileUrl(po); return setBg(el, fileUrl(po)); }
     var at = (m.dur && m.dur > 3) ? Math.min(m.dur * 0.15, 20) : 0;
     run(FFMPEG, ["-v","error","-ss",String(at.toFixed(2)),"-i",it.p,"-frames:v","1","-vf",
-      "scale=320:180:force_original_aspect_ratio=increase,crop=320:180","-q:v","4","-y",po],
-      function (err) { if (!err && fs.existsSync(po)) { el.dataset.poster = fileUrl(po); setBg(el, fileUrl(po)); } },
-      { el:el, first:true });
+      "scale=320:180:force_original_aspect_ratio=increase,crop=320:180","-q:v","4","-y",part],
+      function (err) {
+        if (settle(err, part, po)) { el.dataset.poster = fileUrl(po); setBg(el, fileUrl(po)); }
+        else markThumbFailed(it, err);
+      }, { el:el, first:true });
   });
 }
-
 function waveform(el, it, key) {
-  var wf = cachePath("wf", key, ".png");
+  var wf = cachePath("wf", key, ".png"), part = partOf(wf);
   probeInfo(it, function (m) { setDur(el, m.dur); });
   if (fs.existsSync(wf)) return setBg(el, fileUrl(wf));
   run(FFMPEG, ["-v","error","-i",it.p,"-filter_complex",
-    "aformat=channel_layouts=mono,showwavespic=s=320x180:colors=#5B9BE8","-frames:v","1","-y",wf],
-    function (err) { if (!err && fs.existsSync(wf)) setBg(el, fileUrl(wf)); },
-    { el:el, first:true });
+    "aformat=channel_layouts=mono,showwavespic=s=320x180:colors=#5B9BE8","-frames:v","1","-y",part],
+    function (err) {
+      if (settle(err, part, wf)) setBg(el, fileUrl(wf)); else markThumbFailed(it, err);
+    }, { el:el, first:true });
 }
 
 /* Scrub d'un sprite VERTICAL (format Mister Horse) : la souris balaie en X,
@@ -975,9 +1045,10 @@ function hoverSprite(el, it) {
   probeInfo(it, function (m) {
     // fichier sans image (musique en conteneur .mp4) : pas de sprite possible
     if (!m.vid || !m.dur || m.dur < 0.5) { el.dataset.spriteBusy = ""; return; }
-    run(FFMPEG, spriteArgs(it.p, m.dur, sp), function (err) {
+    var part = partOf(sp);
+    run(FFMPEG, spriteArgs(it.p, m.dur, part), function (err) {
       el.dataset.spriteBusy = "";
-      if (!err && fs.existsSync(sp) && el.matches(":hover")) attach();
+      if (settle(err, part, sp) && el.matches(":hover")) attach();
     });
   });
 }
@@ -1283,10 +1354,15 @@ function saveRoots() {
 function mountRoot(r, forceRescan, done) {
   var lib = { root:r, items:[], meta:{}, mh:{} };
   libs.push(lib);                        // tout de suite : l'ordre reste celui enregistre
+  watchLib(lib);
   if (forceRescan) return scan(lib, function () { done(lib, false); });
   loadIndex(r, function (cached) {
     if (lib.gone) return;
-    if (cached) { lib.items = cached.items; lib.meta = cached.meta || {}; lib.mh = cached.mh || {}; return done(lib, true); }
+    if (cached) {
+      lib.items = cached.items; lib.meta = cached.meta || {}; lib.mh = cached.mh || {};
+      quietRescan(lib, 6000 + 4000 * libs.indexOf(lib));   // fichiers ajoutes depuis
+      return done(lib, true);
+    }
     scan(lib, function () { done(lib, false); });
   });
 }
@@ -1421,6 +1497,8 @@ $("#forget").addEventListener("click", function () {
   if (li < 0 || !libs[li]) return say("Selectionne d'abord un dossier racine dans l'arbre.", "err");
   var lib = libs[li];
   lib.gone = true;                       // arrete son scan et ses ecritures d'index
+  clearTimeout(lib.rescanTimer);
+  if (lib.watcher) { try { lib.watcher.close(); } catch (e) {} }
   deleteIndex(lib.root);
   invalidate();
   libs.splice(li, 1); sel = ""; saveRoots();

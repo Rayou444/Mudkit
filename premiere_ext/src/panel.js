@@ -113,7 +113,14 @@ function status(msg, cls) {
   el.className = cls || "";
 }
 
+/* Progression aussi sur le bouton Telecharger : on peut fermer la fenetre et
+   continuer a parcourir la bibliotheque pendant le telechargement. */
+function pillProgress(txt) {
+  $("#dllabel").textContent = txt || "Télécharger";
+}
+
 function running(on) {
+  if (!on) pillProgress(null);
   $("#go").disabled = on;
   $("#cancel").classList.toggle("hidden", !on);
   $("#bar").classList.toggle("hidden", !on);
@@ -130,6 +137,7 @@ document.querySelectorAll("#seg button").forEach(function (b) {
     });
     b.classList.add("on");
     mode = b.dataset.v;
+    try { localStorage.setItem("mudkit.dl.mode", mode); } catch (e) {}
   });
 });
 
@@ -140,7 +148,42 @@ document.querySelectorAll("#act button").forEach(function (b) {
     });
     b.classList.add("on");
     action = b.dataset.v;
+    try { localStorage.setItem("mudkit.dl.action", action); } catch (e) {}
   });
+});
+
+/* format et action du dernier telechargement : retrouves a l'ouverture */
+(function () {
+  function restore(sel, key, cur) {
+    var v = cur;
+    try { v = localStorage.getItem(key) || cur; } catch (e) {}
+    var found = false;
+    document.querySelectorAll(sel + " button").forEach(function (x) {
+      x.classList.toggle("on", x.dataset.v === v);
+      if (x.dataset.v === v) found = true;
+    });
+    if (!found) {
+      document.querySelectorAll(sel + " button").forEach(function (x) { x.classList.toggle("on", x.dataset.v === cur); });
+      return cur;
+    }
+    return v;
+  }
+  mode = restore("#seg", "mudkit.dl.mode", mode);
+  action = restore("#act", "mudkit.dl.action", action);
+})();
+
+/* Tab reste dans la fenetre de telechargement : avant, il atteignait la
+   recherche derriere, et taper filtrait la grille sans qu'on le voie. */
+document.addEventListener("keydown", function (e) {
+  if (e.key !== "Tab" || !$("#dloverlay").classList.contains("on")) return;
+  var f = [].slice.call($("#dloverlay").querySelectorAll("button, input, a[href]"))
+    .filter(function (x) { return !x.disabled && x.offsetParent !== null; });
+  if (!f.length) return;
+  var i = f.indexOf(document.activeElement);
+  if (i < 0 || (e.shiftKey && i === 0) || (!e.shiftKey && i === f.length - 1)) {
+    e.preventDefault();
+    f[e.shiftKey ? f.length - 1 : 0].focus();
+  }
 });
 
 $("#cut").addEventListener("change", function (e) {
@@ -423,6 +466,8 @@ function onMessage(msg) {
   if (msg.pct != null) {
     $("#bar").classList.remove("indet");
     $("#bar i").style.width = (msg.pct * 100).toFixed(1) + "%";
+    pillProgress((msg.transcode ? "Conversion " : "Téléchargement ")
+                 + (msg.pct * 100).toFixed(0) + " %");
     status((msg.transcode ? "Conversion pour Premiere… "
                           : "Téléchargement… ")
            + (msg.pct * 100).toFixed(0) + " %"

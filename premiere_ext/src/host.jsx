@@ -32,6 +32,29 @@ function mudkitFindItem(root, mediaPath) {
   return null;
 }
 
+/* Fichiers deja retrouves dans le projet : sur un gros projet, relire tout
+   l'arbre (un getMediaPath par element) a chaque import prenait du temps.
+   Cle = projet + chemin ; un element supprime depuis est detecte et oublie. */
+var MUDKIT_ITEMS = {};
+function mudkitItemKey(mediaPath) {
+  var doc = "";
+  try { doc = app.project.documentID; } catch (e) {}
+  return doc + "|" + mediaPath.toLowerCase();
+}
+function mudkitCached(mediaPath) {
+  var key = mudkitItemKey(mediaPath), it = MUDKIT_ITEMS[key];
+  if (!it) return null;
+  try {
+    if (String(it.getMediaPath()).toLowerCase() === mediaPath.toLowerCase()) return it;
+  } catch (e) {}
+  delete MUDKIT_ITEMS[key];
+  return null;
+}
+function mudkitRemember(mediaPath, it) {
+  if (it) MUDKIT_ITEMS[mudkitItemKey(mediaPath)] = it;
+  return it;
+}
+
 var MUDKIT_AUDIO_RE = /\.(mp3|wav|m4a|aac|flac|ogg|opus|aif|aiff|wma|mka)$/i;
 var MUDKIT_MOGRT_RE = /\.mogrt$/i;
 
@@ -44,30 +67,52 @@ function mudkitPlaceMogrt(path, action) {
   var seq = app.project.activeSequence;
   if (!seq) return "mogrt_needs_sequence";
   var t = seq.getPlayerPosition();
-  var item = null;
-  try {
-    item = seq.importMGT(path, t.ticks, 0, 0);
-  } catch (e1) {
+  /* Premiere piste video LIBRE a la tete de lecture : avant, toujours V1,
+     par-dessus le rush. Toutes prises : la piste au-dessus de la derniere
+     (Premiere l'ajoute) ; refusee : V1 comme avant. */
+  var vt = mudkitFreeVideoTrack(seq, t);
+  var item = null, offsets = vt > 0 ? [vt, 0] : [0];
+  for (var k = 0; k < offsets.length && !item; k++) {
     try {
-      item = seq.importMGT(path, t, 0, 0);
-    } catch (e2) {
-      return "imported_insert_failed:" + e2.toString();
+      item = seq.importMGT(path, t.ticks, offsets[k], 0);
+    } catch (e1) {
+      try {
+        item = seq.importMGT(path, t, offsets[k], 0);
+      } catch (e2) {
+        if (k === offsets.length - 1) return "imported_insert_failed:" + e2.toString();
+      }
     }
   }
   if (!item) return "imported_insert_failed:importMGT n'a rien renvoye";
   return "inserted";
 }
 
+function mudkitFreeVideoTrack(seq, t) {
+  var at = t.seconds, n = seq.videoTracks.numTracks;
+  for (var i = 0; i < n; i++) {
+    var clips = seq.videoTracks[i].clips, busy = false;
+    for (var j = 0; j < clips.numItems; j++) {
+      var c = clips[j];
+      if (c.start.seconds <= at && c.end.seconds > at) { busy = true; break; }
+    }
+    if (!busy) return i;
+  }
+  return n;
+}
+
 /* Coeur commun : importe le fichier dans "bin" puis applique l'action.
    action : "insert" | "overwrite" | "bin" */
 function mudkitPlace(path, action, bin) {
   if (MUDKIT_MOGRT_RE.test(path)) return mudkitPlaceMogrt(path, action);
-  var item = mudkitFindItem(bin, path) ||
-             mudkitFindItem(app.project.rootItem, path);
+  var item = mudkitCached(path) ||
+             mudkitRemember(path, mudkitFindItem(bin, path) ||
+                                  mudkitFindItem(app.project.rootItem, path));
   if (!item) {
     app.project.importFiles([path], true, bin, false);
-    item = mudkitFindItem(bin, path) ||
-           mudkitFindItem(app.project.rootItem, path);
+    // un fichier tout juste importe est dans le chutier : pas besoin de
+    // relire tout le projet dans le cas normal
+    item = mudkitRemember(path, mudkitFindItem(bin, path) ||
+                                mudkitFindItem(app.project.rootItem, path));
   }
   if (!item) return "err:import introuvable dans le projet";
 

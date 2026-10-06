@@ -166,6 +166,17 @@ Composer (arborescence à gauche, grille à droite), sans limite d'éléments :
 - Dossiers repérés **par chemin** (clés `racine|chemin`), plus par position.
   Un dossier introuvable au démarrage (disque débranché) reste enregistré et
   grisé dans l'arbre ; un clic le remonte s'il est revenu, `−` l'oublie.
+- **Nouveaux fichiers visibles tout seuls** : rescan silencieux quelques
+  secondes après l'ouverture (`quietRescan`), puis à chaque changement
+  signalé par `fs.watch` récursif sur chaque dossier monté. Le scan construit
+  sa liste à part et ne remplace l'ancienne qu'à la fin.
+- Vignettes : écrites dans un `.part` puis renommées ; une vignette ratée est
+  retenue dans l'index (`nothumb`, clé chemin + date + taille) et n'est plus
+  retentée à chaque défilement. Images de plus de 400 Ko et GIF : miniature
+  320 px en cache au lieu du fichier original.
+- MOGRT posé sur la première piste vidéo libre à la tête de lecture
+  (`mudkitFreeVideoTrack`), plus toujours sur V1. `host.jsx` garde les
+  éléments déjà retrouvés (`MUDKIT_ITEMS`, clé projet + chemin).
 - **Purge du cache** une fois par jour : au-delà de 3 Go, les plus anciens
   fichiers sont supprimés jusqu'à 2 Go, avec les `.part` et les index de
   dossiers retirés.
@@ -277,7 +288,9 @@ de travail**.
 - `mudkit/ui/` — interface (HTML/CSS/JS), thème « Crème & Gobou » (crème
   par défaut, sombre en option). Pour ouvrir `app.js` dans un navigateur
   sans pywebview, il y a un mode simulation. Un aperçu se lance avec
-  `python -m http.server`, puis on ouvre `/mudkit/ui/index.html`.
+  `python -m http.server`, puis on ouvre `/mudkit/ui/index.html?apercu`
+  (ou le fichier directement). Sans `?apercu`, la page attend le moteur :
+  la simulation ne se déclenche plus toute seule dans la vraie appli.
   - Grands titres et mot géant en contour : attribut `data-wm` des
     `.page-head`.
   - Pilule-image dans les titres d'accueil : `.hero-pill`.
