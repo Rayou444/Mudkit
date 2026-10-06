@@ -289,6 +289,9 @@ class Api:
             return {"error": str(e)[:200], "current": __version__}
 
     def update_start(self):
+        """Un seul clic : telecharge, installe (appli + panneau Premiere)
+        puis redemarre Mudkit tout seul. Le redemarrage attend la fin des
+        taches en cours : une mise a jour ne coupe jamais un telechargement."""
         info = self._update
         if not info or not info.get("available") or not info.get("asset"):
             return False
@@ -301,8 +304,6 @@ class Api:
                         {"type": "upd_progress",
                          "pct": done / total if total else None})))
                 version = updater.apply(path)
-                return {"type": "upd_done", "ok": True, "version": version,
-                        "premiere": updater.premiere_running()}
             except updater.NeedFullInstall:
                 return {"type": "upd_done", "ok": False, "full_only": True,
                         "page": info["page"]}
@@ -312,8 +313,20 @@ class Api:
             finally:
                 if path and os.path.exists(path):
                     os.remove(path)
+            self._restart_when_idle(version)
+            return None
         return self._spawn("update", job,
                            crash={"type": "upd_done", "ok": False})
+
+    def _restart_when_idle(self, version):
+        others = lambda: self._busy - {"update"}  # noqa: E731
+        if others():
+            self._emit({"type": "upd_waiting", "version": version})
+            while others():
+                time.sleep(1)
+        self._emit({"type": "upd_done", "ok": True, "version": version})
+        time.sleep(1.5)  # le temps de lire « redemarrage... »
+        self.update_restart()
 
     def update_restart(self):
         updater.restart()

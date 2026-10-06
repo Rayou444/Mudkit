@@ -1416,24 +1416,51 @@ function onCvEvent(e) {
   }
 }
 
-/* ---------------- mises a jour de Mudkit ---------------- */
+/* ---------------- mises a jour de Mudkit ----------------
+   UN seul bouton, le meme partout (pastille de la barre de gauche,
+   notification, Parametres) : « Mettre à jour » telecharge, installe l'appli
+   ET le panneau Premiere, puis redemarre Mudkit tout seul (apres la fin des
+   taches en cours). Plus de passage par les Parametres ni de 2e bouton. */
 
-const U = { info: null, dev: false };
+const U = { info: null, dev: false, state: null };
+const UPD_EVERY = 6 * 3600 * 1000;  // l'appli peut rester ouverte des jours
+
+/* Ce que fait LE bouton dans l'etat courant (null = pas de bouton). */
+function updButton() {
+  const i = U.info;
+  if (U.state === "pending")
+    return { label: "Redémarrer", run: () => api("update_restart") };
+  if (U.state !== "available") return null;
+  if (i.full_only)
+    return { label: "Télécharger l'installateur", short: "Nouvelle version",
+             run: () => api("open_url", i.page) };
+  return { label: "Mettre à jour", run: startUpdate };
+}
 
 function updRender(state, extra = {}) {
+  U.state = state;
   const desc = $("#upd-desc"), box = $("#upd-state"), notes = $("#upd-notes");
+  const pill = $("#upd-pill");
   box.innerHTML = "";
   notes.classList.add("hidden");
-  $("#upd-pill").classList.toggle("hidden",
-    !(state === "available" || state === "ready"));
-  const btn = (label, primary, fn) => {
-    const b = document.createElement("button");
-    b.className = "btn sm" + (primary ? " primary" : "");
-    b.textContent = label;
-    b.addEventListener("click", fn);
-    box.appendChild(b);
-  };
   const i = U.info;
+  const one = updButton();
+  if (one) {
+    const b = document.createElement("button");
+    b.className = "btn sm primary";
+    b.textContent = one.label;
+    b.addEventListener("click", one.run);
+    box.appendChild(b);
+  }
+  // la pastille = le meme bouton, et la progression pendant la mise a jour
+  const busy = ["downloading", "waiting", "restarting"].includes(state);
+  pill.classList.toggle("hidden", !one && !busy);
+  pill.disabled = busy;
+  pill.title = "Mise à jour de Mudkit en cours";
+  pill.textContent = one ? (one.short || one.label)
+    : state === "downloading" && extra.pct != null ? `${(extra.pct * 100).toFixed(0)} %`
+    : "Mise à jour…";
+
   if (state === "dev") {
     desc.textContent = "Version de développement, mises à jour via git.";
   } else if (state === "checking") {
@@ -1441,37 +1468,48 @@ function updRender(state, extra = {}) {
     box.innerHTML = `<span class="spin"></span>`;
   } else if (state === "error") {
     desc.textContent = "Vérification impossible (hors ligne ?).";
-    btn("Réessayer", false, () => checkUpdate(true));
+    const b = document.createElement("button");
+    b.className = "btn sm";
+    b.textContent = "Réessayer";
+    b.addEventListener("click", () => checkUpdate(true));
+    box.appendChild(b);
   } else if (state === "uptodate") {
     desc.textContent = "Tu as la dernière version.";
     box.innerHTML = `<span class="chip">à jour</span>`;
-    btn("Vérifier", false, () => checkUpdate(true));
+    const b = document.createElement("button");
+    b.className = "btn sm";
+    b.textContent = "Vérifier";
+    b.addEventListener("click", () => checkUpdate(true));
+    box.appendChild(b);
   } else if (state === "available") {
     desc.textContent = i.full_only
       ? `Version ${i.latest} disponible. Elle demande le nouvel installateur.`
-      : `Version ${i.latest} disponible.`;
-    if (i.full_only)
-      btn("Télécharger l'installateur", true, () => api("open_url", i.page));
-    else btn("Mettre à jour", true, startUpdate);
+      : `Version ${i.latest} disponible. Un clic l'installe (appli + panneau Premiere) et redémarre Mudkit.`;
+    pill.title = desc.textContent;
     if (i.notes) {
       notes.textContent = i.notes;
       notes.classList.remove("hidden");
     }
+  } else if (state === "pending") {
+    desc.textContent = `Version ${i.installed} déjà installée (depuis le panneau Premiere). Redémarre pour l'utiliser.`;
+    pill.title = desc.textContent;
   } else if (state === "downloading") {
     desc.textContent = `Téléchargement de la version ${i.latest}…`;
     box.textContent = extra.pct != null
       ? `${(extra.pct * 100).toFixed(0)} %` : "…";
-  } else if (state === "ready") {
-    desc.textContent = `Version ${extra.version} installée`
-      + (extra.premiere ? ". Redémarre aussi Premiere Pro pour le panneau."
-                        : ".");
-    btn("Redémarrer Mudkit", true, () => api("update_restart"));
+  } else if (state === "waiting") {
+    desc.textContent = `Version ${extra.version} installée. Redémarrage dès la fin des tâches en cours.`;
+    box.innerHTML = `<span class="spin"></span>`;
+  } else if (state === "restarting") {
+    desc.textContent = `Version ${extra.version} installée. Redémarrage…`;
+    box.innerHTML = `<span class="spin"></span>`;
   }
 }
 
 async function checkUpdate(manual = false) {
   if (U.dev) return updRender("dev");
-  updRender("checking");
+  const before = U.state;
+  if (manual || !before) updRender("checking");
   const r = await api("update_check");
   if (!r || r.error) return updRender("error");
   if (r.dev) {
@@ -1479,24 +1517,33 @@ async function checkUpdate(manual = false) {
     return updRender("dev");
   }
   U.info = r;
-  if (!r.available) return updRender("uptodate");
-  updRender("available");
-  if (!manual)
-    toast(`Mudkit ${r.latest} est disponible.`, "info", 9000,
-          { label: "Voir", run: () => go("set") });
+  const state = r.available ? "available" : r.pending_restart ? "pending" : "uptodate";
+  updRender(state);
+  // une seule notification par nouveaute (la verification toutes les 6 h
+  // ne doit pas la repeter), avec le bouton directement dedans
+  const one = updButton();
+  if (one && !manual && before !== state)
+    toast(state === "pending"
+            ? `Mudkit ${r.installed} est installé : redémarre pour l'utiliser.`
+            : `Mudkit ${r.latest} est disponible.`,
+          "info", 12000, one);
 }
 
 async function startUpdate() {
+  if (U.state !== "available") return;  // deja lancee (double clic)
   updRender("downloading");
   if (!(await api("update_start"))) updRender("available");
 }
 
 function onUpdEvent(e) {
   if (e.type === "upd_progress") return updRender("downloading", e);
+  if (e.type === "upd_waiting") {
+    updRender("waiting", e);
+    return toast(`Mudkit ${e.version} est installé. Redémarrage dès la fin des tâches en cours.`, "info", 9000);
+  }
   if (e.ok) {
-    updRender("ready", e);
-    return toast(`Mudkit ${e.version} est installé. Redémarre pour en profiter.`,
-                 "ok", 9000, { label: "Redémarrer", run: () => api("update_restart") });
+    updRender("restarting", e);
+    return toast(`Mudkit ${e.version} est installé. Redémarrage…`, "ok", 9000);
   }
   if (e.full_only) {
     U.info.full_only = true;
@@ -1510,11 +1557,17 @@ function onUpdEvent(e) {
 function wireSettings(st) {
   U.dev = !!st.dev;
   $("#upd-cur").textContent = "v" + st.version;
-  $("#upd-pill").addEventListener("click", () => go("set"));
+  $("#upd-pill").addEventListener("click", () => {
+    const one = updButton();
+    if (one) one.run();
+  });
   $("#btn-report").addEventListener("click", () => copyReport("rapport manuel"));
   $("#btn-logs").addEventListener("click", () => api("open_logs"));
-  if (U.dev) updRender("dev");
-  else setTimeout(() => checkUpdate(false), 2500);
+  if (U.dev) return updRender("dev");
+  setTimeout(() => checkUpdate(false), 2500);
+  setInterval(() => {
+    if (!["downloading", "waiting", "restarting"].includes(U.state)) checkUpdate(false);
+  }, UPD_EVERY);
 }
 
 /* ---------------- evenements Python ---------------- */

@@ -243,6 +243,149 @@ $("#go").addEventListener("click", function () {
   });
 });
 
+/* -------------- mise a jour : un seul bouton, comme l'appli -------------
+   Le panneau et l'appli se mettent a jour ensemble (meme zip). Le bouton
+   vert n'apparait que s'il y a quelque chose a faire, et un clic suffit :
+     « Mettre à jour » telecharge + installe (python -m mudkit.updater apply)
+                       puis recharge le panneau tout seul ;
+     « Recharger »     l'appli a deja installe une nouvelle version : il ne
+                       reste qu'a recharger le panneau ;
+     « Nouvelle version » la release demande l'installateur complet.
+   Sur le PC de dev (depot git), le moteur repond "dev" : pas de bouton de
+   mise a jour, seulement « Recharger » si la version du depot change. */
+
+var UPD_EVERY = 6 * 3600 * 1000;
+var upd = { state: "", info: null, proc: null };
+
+function libSay(msg, cls) {
+  var el = $("#libstatus");
+  el.textContent = msg;
+  el.className = "msg " + (cls || "");
+}
+
+/* Version du code Mudkit sur le disque (appli + panneau voyagent ensemble). */
+function diskVersion() {
+  if (!nodeReq) return null;
+  try {
+    var src = nodeReq("fs").readFileSync(MUDKIT + "\\mudkit\\__init__.py", "utf8");
+    var m = /__version__\s*=\s*"([^"]+)"/.exec(src);
+    return m ? m[1] : null;
+  } catch (e) { return null; }
+}
+var loadedVersion = diskVersion();   // la version avec laquelle ce panneau a demarre
+
+function updShow(state, label, title) {
+  upd.state = state;
+  var b = $("#updpill");
+  b.classList.toggle("hidden", !label);
+  b.disabled = state === "running";
+  if (label) { b.querySelector("span").textContent = label; b.title = title || ""; }
+}
+
+/* Lance le moteur de mise a jour ; onLine recoit chaque ligne JSON. */
+function runUpdater(cmd, onLine, onEnd) {
+  var spawn = nodeReq("child_process").spawn, p, buf = "", got = false, ended = false;
+  function end() { if (!ended) { ended = true; onEnd(got); } }
+  try {
+    p = spawn(PY, ["-E", "-s", "-m", "mudkit.updater", cmd],
+              { cwd: MUDKIT, windowsHide: true });
+  } catch (e) { return end(); }
+  p.stdout.on("data", function (c) {
+    buf += c.toString("utf8");
+    var lines = buf.split("\n");
+    buf = lines.pop();
+    lines.forEach(function (l) {
+      var msg;
+      try { msg = JSON.parse(l); } catch (e) { return; }
+      got = true; onLine(msg);
+    });
+  });
+  p.stderr.on("data", function () {});   // lu pour ne jamais bloquer Python
+  p.on("error", end);
+  p.on("close", end);   // "close" et non "exit" : stdout est alors lu en entier
+  return p;
+}
+
+/* Recharge le panneau sur les nouveaux fichiers. host.jsx (ExtendScript)
+   n'est relu qu'au chargement de l'extension : on le reevalue a la main,
+   sinon les fonctions d'import resteraient les anciennes. */
+function reloadPanel() {
+  if (proc) {
+    // un telechargement tourne dans ce panneau : on ne le coupe pas
+    updShow("reload", "Recharger", "Nouvelle version installée : un clic recharge le panneau");
+    return libSay("Mise à jour installée : le panneau se rechargera via le bouton vert après le téléchargement.", "ok");
+  }
+  var host = decodeURIComponent(new URL("host.jsx", location.href).pathname)
+    .replace(/^\/(?=[A-Za-z]:)/, "");
+  evalScript("try { $.evalFile(new File(" + JSON.stringify(host) + ")); 'ok' } catch (e) { 'err:' + e }")
+    .then(function () { location.reload(); });
+}
+
+function applyUpdate() {
+  if (!nodeReq || upd.state === "running") return;
+  updShow("running", "Mise à jour…", "Téléchargement et installation de la nouvelle version");
+  libSay("Mise à jour de Mudkit…");
+  var last = null;
+  upd.proc = runUpdater("apply", function (msg) {
+    last = msg;
+    if (msg.pct != null) {
+      $("#updpill span").textContent = "Mise à jour " + Math.round(msg.pct * 100) + " %";
+    }
+  }, function () {
+    upd.proc = null;
+    if (last && last.done) {
+      libSay("Mudkit " + last.version + " installé, rechargement du panneau…", "ok");
+      return setTimeout(reloadPanel, 600);
+    }
+    if (last && last.full_only) return showFullOnly(last.page);
+    var why = (last && last.error) || "le moteur Mudkit ne répond pas";
+    updShow("error", "Réessayer la mise à jour", why);
+    libSay("Mise à jour impossible : " + why, "err");
+  });
+}
+
+function showFullOnly(page) {
+  upd.info = upd.info || {};
+  upd.info.page = page || upd.info.page;
+  updShow("full", "Nouvelle version",
+          "Cette version demande le nouvel installateur : un clic ouvre la page de téléchargement");
+}
+
+function checkUpdate() {
+  if (!nodeReq || upd.state === "running" || upd.state === "reload") return;
+  var last = null;
+  runUpdater("check", function (msg) { last = msg; }, function () {
+    if (!last || last.dev || last.error) return;   // dev, hors ligne : rien
+    upd.info = last;
+    if (loadedVersion && last.installed && last.installed !== loadedVersion)
+      return updShow("reload", "Recharger", "Mudkit " + last.installed + " est installé : un clic recharge le panneau");
+    if (!last.available) return updShow("", null);
+    if (last.full_only) return showFullOnly(last.page);
+    updShow("available", "Mettre à jour",
+            "Mudkit " + last.latest + " est disponible : un clic l'installe (panneau + appli) et recharge le panneau");
+  });
+}
+
+$("#updpill").addEventListener("click", function () {
+  if (upd.state === "available" || upd.state === "error") return applyUpdate();
+  if (upd.state === "reload") return reloadPanel();
+  if (upd.state === "full" && upd.info && upd.info.page) {
+    try { window.cep.util.openURLInDefaultBrowser(upd.info.page); } catch (e) {}
+  }
+});
+
+if (nodeReq && loadedVersion) {
+  setTimeout(checkUpdate, 5000);
+  setInterval(checkUpdate, UPD_EVERY);
+  /* L'appli a pu mettre a jour le panneau pendant que Premiere tournait :
+     simple lecture d'un fichier local, donc verifiee souvent. */
+  setInterval(function () {
+    var v = diskVersion();
+    if (v && v !== loadedVersion && upd.state !== "running" && upd.state !== "reload")
+      updShow("reload", "Recharger", "Mudkit " + v + " est installé : un clic recharge le panneau");
+  }, 60 * 1000);
+}
+
 function onMessage(msg) {
   if (msg.error) {
     running(false);

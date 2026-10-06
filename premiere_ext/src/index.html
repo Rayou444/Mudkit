@@ -68,6 +68,10 @@
     padding:4px 11px; cursor:pointer;
   }
   .pill:hover { background:var(--accent-h); }
+  /* bouton de mise a jour : vert, n'apparait que s'il y a quelque chose a faire */
+  .pill.upd { background:var(--green); white-space:nowrap; }
+  .pill.upd:hover { background:var(--green); filter:brightness(1.12); }
+  .pill.upd:disabled { cursor:default; filter:none; opacity:.85; }
 
   .ghost {
     display:flex; align-items:center; justify-content:center;
@@ -200,19 +204,22 @@
     padding:4px 8px; border-top:1px solid var(--line); background:var(--panel);
     font-size:10px; color:var(--faint);
   }
-  .statusbar input[type=range] {
+  .statusbar input[type=range], .player input[type=range] {
     -webkit-appearance:none; height:12px; background:transparent; cursor:pointer;
   }
-  .statusbar input[type=range]::-webkit-slider-runnable-track {
+  .statusbar input[type=range]::-webkit-slider-runnable-track,
+  .player input[type=range]::-webkit-slider-runnable-track {
     height:2px; background:var(--line); border-radius:1px;
   }
-  .statusbar input[type=range]::-webkit-slider-thumb {
+  .statusbar input[type=range]::-webkit-slider-thumb,
+  .player input[type=range]::-webkit-slider-thumb {
     -webkit-appearance:none; width:9px; height:9px; border-radius:50%;
     background:var(--dim); margin-top:-3.5px;
   }
-  .statusbar input[type=range]:hover::-webkit-slider-thumb { background:var(--text); }
+  .statusbar input[type=range]:hover::-webkit-slider-thumb,
+  .player input[type=range]:hover::-webkit-slider-thumb { background:var(--text); }
   #size { width:64px; }
-  #vol  { width:52px; }
+  #vol  { width:64px; flex:0 0 auto; }
   #vol::-webkit-slider-thumb { background:var(--accent); }
   .statusbar .msg {
     flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
@@ -229,6 +236,35 @@
   .modes button:last-child { border-right:1px solid var(--line); border-radius:0 3px 3px 0; }
   .modes button:hover { color:var(--text); }
   .modes button.on { color:#FFF; background:var(--accent); border-color:var(--accent); }
+
+  /* -------------------------------- lecteur ----------------------------- */
+  /* Barre de lecture des sons : apparait au premier son lance et survit aux
+     changements de dossier / recherche (la musique ne se coupe plus). */
+  .player {
+    flex:0 0 auto; display:flex; align-items:center; gap:2px;
+    padding:4px 8px; border-top:1px solid var(--line); background:var(--panel);
+  }
+  .player .ghost.play {
+    width:26px; height:26px; border-radius:50%; margin:0 1px;
+    color:#FFF; background:var(--accent); border-color:var(--accent);
+  }
+  .player .ghost.play:hover { background:var(--accent-h); border-color:var(--accent-h); }
+  .player .ghost.lit { color:var(--accent); }
+  .player .pmid { flex:1 1 auto; min-width:50px; display:flex; flex-direction:column; margin:0 6px; }
+  .player .ptop { display:flex; gap:6px; font-size:10.5px; line-height:13px; }
+  .player .pname { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .player .ptime { flex:0 0 auto; color:var(--faint); font-size:10px; }
+  #pseek { width:100%; }
+  /* --p = avancement, pilote par library.js : la partie deja jouee est verte */
+  #pseek::-webkit-slider-runnable-track {
+    background:linear-gradient(to right, var(--green) var(--p, 0%), var(--line) var(--p, 0%));
+  }
+  #pseek::-webkit-slider-thumb { background:var(--green); }
+  @media (max-width:380px) {
+    #pprev, #pnext { display:none; }
+    #vol { width:40px; }
+  }
+  .tile.playing.paused .th { border-color:var(--dim); box-shadow:none; }
 
   /* ----------------------------- visionneuse ---------------------------- */
   #viewer {
@@ -320,6 +356,7 @@
   <button id="pick" class="ghost" title="Ajouter un dossier"><svg class="ic" viewBox="0 0 16 16"><path d="M8 3.4v9.2M3.4 8h9.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
   <button id="forget" class="ghost" title="Retirer le dossier sélectionné"><svg class="ic" viewBox="0 0 16 16"><path d="M3.4 8h9.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
   <button id="rescan" class="ghost" title="Rescanner"><svg class="ic" viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.6-3.7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M12.9 2.3v2.9h-2.9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+  <button id="updpill" class="pill upd hidden"><svg class="ic" viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.6-3.7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M12.9 2.3v2.9h-2.9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Mettre à jour</span></button>
   <button id="dl" class="pill"><svg class="ic" viewBox="0 0 16 16"><path d="M8 2.6v7.2M5.1 7l2.9 2.9L10.9 7M3.2 12.9h9.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Télécharger</button>
 </div>
 
@@ -340,6 +377,20 @@
   </div>
 </div>
 
+<div class="player hidden" id="player">
+  <button class="ghost" id="pprev" title="Son précédent (ou retour au début)"></button>
+  <button class="ghost play" id="pplay" title="Lecture (Espace)"></button>
+  <button class="ghost" id="pnext" title="Son suivant"></button>
+  <div class="pmid">
+    <div class="ptop"><span class="pname" id="pname"></span><span class="ptime" id="ptime"></span></div>
+    <input id="pseek" type="range" min="0" max="1000" value="0" title="Position (flèches gauche / droite : 5 s)">
+  </div>
+  <button class="ghost" id="prep"></button>
+  <button class="ghost" id="pmute" title="Couper le son"></button>
+  <input id="vol" type="range" min="0" max="100" value="70" title="Volume (molette pour ajuster)">
+  <button class="ghost" id="pclose" title="Arrêter et fermer le lecteur"><svg class="ic" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+</div>
+
 <div class="statusbar">
   <input id="size" type="range" min="72" max="260" value="116" title="Taille des vignettes">
   <span id="libstatus" class="msg">Ajoute un dossier avec le bouton +</span>
@@ -348,7 +399,6 @@
     <button data-v="overwrite">écraser</button>
     <button data-v="bin">chutier</button>
   </div>
-  <input id="vol" type="range" min="0" max="100" value="70" title="Volume">
 </div>
 
 <div id="viewer">

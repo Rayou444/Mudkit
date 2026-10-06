@@ -40,10 +40,23 @@ exactes du `.venv` (`pip freeze` sert de contraintes).
 
 ### Mises à jour automatiques (`mudkit/updater.py`)
 
-- Au lancement, l'appli interroge `releases/latest` du dépôt public.
-- Le bouton « Mettre à jour » télécharge `Mudkit-update-*.zip` et vérifie
-  son empreinte SHA-256 fournie par GitHub. Il écrase ensuite le code et le
-  panneau Premiere, puis relance l'appli.
+- **Un seul bouton, un seul clic, pour les deux outils.** Le même zip met à
+  jour l'appli et le panneau, quel que soit l'outil d'où part le clic.
+- L'appli vérifie `releases/latest` au lancement puis toutes les 6 h. Le
+  bouton « Mettre à jour » (pastille de la barre de gauche, notification,
+  Paramètres) télécharge `Mudkit-update-*.zip`, vérifie son empreinte SHA-256
+  fournie par GitHub, écrase le panneau puis le code, et **redémarre l'appli
+  tout seul**, après la fin des tâches en cours (`Api._restart_when_idle`).
+- Le panneau Premiere fait pareil avec son bouton vert « Mettre à jour » :
+  il lance `python -E -s -m mudkit.updater apply` (lignes JSON sur stdout),
+  puis se recharge seul (`$.evalFile` de `host.jsx` + `location.reload()`),
+  sans redémarrer Premiere.
+- Chaque outil détecte que l'autre a déjà installé une version :
+  `updater.installed_version()` lit la version sur le disque. L'appli
+  propose alors « Redémarrer », le panneau « Recharger » (lecture locale
+  chaque minute).
+- Le panneau est copié en premier : si Premiere en verrouille un fichier, la
+  mise à jour s'arrête avant de toucher l'appli.
 - Ne sont jamais touchés : `python\`, `bin\`, `config.json`, `cookies.txt`.
 - Si `update.json` demande un runtime plus récent que
   `python\mudkit-runtime.txt`, l'appli renvoie vers l'installateur complet.
@@ -96,10 +109,24 @@ Composer (arborescence à gauche, grille à droite), sans limite d'éléments :
 - **Pour un son, on clique sur la forme d'onde et la lecture démarre à cet
   endroit** : la position horizontale du clic donne une fraction de 0 à 1,
   appliquée à la durée. Cliquer ailleurs sur la tuile (la ligne du nom)
-  bascule simplement lecture / stop. `currentTime` n'étant réglable qu'une fois
-  la durée connue, le calage se fait sur `loadedmetadata` quand les métadonnées
-  ne sont pas encore chargées. `.dur` et `.pos` sont en `pointer-events:none`
-  pour que le clic traverse jusqu'au visuel.
+  bascule lecture / pause (la position est gardée). `currentTime` n'étant
+  réglable qu'une fois la durée connue, le calage se fait sur `loadedmetadata`
+  quand les métadonnées ne sont pas encore chargées. `.dur` et `.pos` sont en
+  `pointer-events:none` pour que le clic traverse jusqu'au visuel. Le 2e clic
+  d'un double-clic (`event.detail > 1`) est ignoré : double-clic = import, sans
+  basculer la lecture au passage.
+- **Lecteur** (barre au-dessus de la barre du bas, visible dès qu'un son est
+  lancé) : précédent / lecture-pause / suivant, barre de position cliquable et
+  glissable, temps écoulé / durée, volume (molette sur le slider) et muet, ✕
+  pour arrêter. **Fin du son** au choix, mémorisé : *boucle* (défaut),
+  *enchaîner* le son suivant de la grille, ou *s'arrêter*. Le son en cours est
+  gardé à part de la grille : chercher, changer de dossier, filtrer les favoris
+  ou ouvrir une image **ne coupe plus la musique** ; ouvrir une vidéo la met en
+  pause. Clavier : `Espace` lecture/pause, `←` / `→` ±5 s, `Échap` pause
+  (`registerKeyEventsInterest` évite que Premiere reçoive aussi ces touches).
+  La conversion pour l'écoute (aif, wma…) passe devant les vignettes dans la
+  file ffmpeg et s'écrit dans un `.part.mp3` renommé à la fin, pour ne jamais
+  mettre en cache un mp3 tronqué.
 - **Pas de filtre par type** : retiré à la demande, l'arbre suffit à cadrer.
 - **La visionneuse se ferme en cliquant dans le vide** autour du média, sans
   passer par la croix. Le test `ev.target === this` sur `.vbody` garantit qu'on

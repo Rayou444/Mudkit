@@ -10,6 +10,11 @@ la release demande un runtime plus recent que celui installe, le code seul
 ne suffit pas : on renvoie vers l'installateur complet.
 
 Jamais actif sur le PC de dev (depot git / .venv) : tout passe par git.
+
+Une seule mise a jour pour les deux outils : le meme zip remplace le code de
+l'appli ET le panneau Premiere, qu'elle soit lancee depuis l'appli (bouton
+« Mettre a jour ») ou depuis le panneau (python -m mudkit.updater apply,
+voir main() en bas).
 """
 import hashlib
 import json
@@ -20,6 +25,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 import zipfile
 
@@ -58,6 +64,19 @@ def _ver(s):
     return tuple(nums + [0] * (3 - len(nums)))
 
 
+def installed_version():
+    """Version du code PRESENT SUR LE DISQUE, qui peut etre plus recente que
+    celle qui tourne : le panneau Premiere a pu appliquer une mise a jour
+    pendant que l'appli etait ouverte (ou l'inverse)."""
+    try:
+        with open(os.path.join(utils.ROOT, "mudkit", "__init__.py"),
+                  encoding="utf-8") as f:
+            m = re.search(r'__version__\s*=\s*"([^"]+)"', f.read())
+        return m.group(1) if m else __version__
+    except OSError:
+        return __version__
+
+
 def check():
     """Interroge la derniere release. Leve une exception si hors ligne."""
     req = urllib.request.Request(API_LATEST, headers={
@@ -69,10 +88,14 @@ def check():
     asset = next((a for a in data.get("assets") or []
                   if a.get("name", "").startswith("Mudkit-update-")
                   and a["name"].endswith(".zip")), None)
+    installed = installed_version()
     return {
         "current": __version__,
+        "installed": installed,
+        # deja installee sur le disque, il ne manque qu'un redemarrage
+        "pending_restart": _ver(installed) > _ver(__version__),
         "latest": latest,
-        "available": _ver(latest) > _ver(__version__),
+        "available": _ver(latest) > _ver(installed),
         "full_only": asset is None,
         "notes": (data.get("body") or "")[:3000],
         "page": data.get("html_url") or RELEASES_PAGE,
@@ -117,23 +140,28 @@ def apply(zip_path):
         if int(meta.get("runtime", 0)) > (runtime() or 0):
             raise NeedFullInstall(meta.get("version"))
 
-        shutil.copytree(os.path.join(tmp, "app"), utils.ROOT,
-                        dirs_exist_ok=True)
+        # Le panneau d'abord : c'est la seule copie qui peut echouer
+        # (fichier verrouille par Premiere). Dans ce cas on s'arrete avant
+        # de toucher a l'appli, pour ne pas laisser les deux outils dans des
+        # versions differentes.
         ext = os.path.join(tmp, "com.mudkit.premiere")
         if os.path.isdir(ext):
             # remplacement complet (la signature couvre la liste des
             # fichiers) ; si Premiere en verrouille un, on ecrase par-dessus
             shutil.rmtree(EXT_DIR, ignore_errors=True)
-            shutil.copytree(ext, EXT_DIR, dirs_exist_ok=True)
+            try:
+                shutil.copytree(ext, EXT_DIR, dirs_exist_ok=True)
+            except (shutil.Error, OSError) as e:
+                log.error("copie du panneau Premiere : %s", e)
+                raise RuntimeError(
+                    "le panneau Premiere n'a pas pu être remplacé (fichier "
+                    "verrouillé) : ferme Premiere Pro puis relance la mise "
+                    "à jour") from e
+        shutil.copytree(os.path.join(tmp, "app"), utils.ROOT,
+                        dirs_exist_ok=True)
     log.info("mise a jour appliquee : %s -> %s", __version__,
              meta.get("version"))
     return meta.get("version")
-
-
-def premiere_running():
-    r = utils.run_hidden(["tasklist", "/FI",
-                          "IMAGENAME eq Adobe Premiere Pro.exe", "/NH"])
-    return "adobe premiere pro.exe" in (r.stdout or "").lower()
 
 
 def restart():
@@ -147,3 +175,75 @@ def restart():
     DETACHED = 0x00000008 | 0x00000200  # DETACHED_PROCESS | NEW_PROCESS_GROUP
     subprocess.Popen(args, cwd=utils.ROOT, creationflags=DETACHED,
                      close_fds=True)
+
+
+# ------------------------------------------------- commande pour le panneau
+
+def _emit(obj):
+    # ensure_ascii : stdout d'un Python lance par le panneau est en cp1252,
+    # le panneau lit de l'UTF-8 ; en ASCII pur les accents survivent.
+    print(json.dumps(obj), flush=True)
+
+
+def main(argv=None):
+    """Mise a jour en un clic depuis le panneau Premiere.
+
+      python -E -s -m mudkit.updater check   une ligne JSON : l'etat
+      python -E -s -m mudkit.updater apply   {"pct": ..}* puis une ligne
+                                             finale : done / full_only / error
+
+    (lance avec le dossier Mudkit comme repertoire courant). Toujours une
+    ligne JSON finale sur stdout, jamais une trace Python.
+    """
+    from . import dnsfix
+    dnsfix.activate_if_needed()  # meme resolveur de secours que l'appli
+    args = sys.argv[1:] if argv is None else argv
+    cmd = args[0] if args else "check"
+    if is_dev():
+        _emit({"dev": True, "current": installed_version()})
+        return 0
+    try:
+        info = check()
+    except Exception as e:  # noqa: BLE001 - hors ligne, GitHub indispo
+        _emit({"error": f"vérification impossible : {e}"[:300]})
+        return 1
+    if cmd == "check":
+        _emit(info)
+        return 0
+    if cmd != "apply":
+        _emit({"error": f"commande inconnue : {cmd}"})
+        return 2
+    if not info["available"]:
+        _emit({"done": True, "version": info["installed"], "uptodate": True})
+        return 0
+    if info["full_only"]:
+        _emit({"full_only": True, "page": info["page"]})
+        return 0
+
+    last = [0.0]
+
+    def progress(done, total):
+        now = time.monotonic()
+        if total and (now - last[0] >= 0.25 or done >= total):
+            last[0] = now
+            _emit({"pct": done / total})
+
+    path = None
+    try:
+        path = download(info["asset"], progress)
+        _emit({"done": True, "version": apply(path)})
+        return 0
+    except NeedFullInstall:
+        _emit({"full_only": True, "page": info["page"]})
+        return 0
+    except Exception as e:  # noqa: BLE001
+        log.error("mise a jour depuis le panneau : %s", e, exc_info=e)
+        _emit({"error": str(e)[:300]})
+        return 1
+    finally:
+        if path and os.path.exists(path):
+            os.remove(path)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

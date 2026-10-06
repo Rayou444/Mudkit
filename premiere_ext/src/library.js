@@ -74,7 +74,16 @@ var ICO = {
   chev:   S + '<path d="M6.2 4.4L9.8 8l-3.6 3.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   folder: S + '<path d="M1.9 4h4l1.1 1.5h7.1v6.6H1.9z" fill="currentColor"/></svg>',
   star:   S + '<path d="M8 2.2l1.75 3.54 3.91.57-2.83 2.76.67 3.89L8 11.13l-3.5 1.83.67-3.89L2.34 6.31l3.91-.57z" fill="currentColor"/></svg>',
-  plus:   S + '<path d="M8 3.4v9.2M3.4 8h9.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
+  plus:   S + '<path d="M8 3.4v9.2M3.4 8h9.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  play:   S + '<path d="M5.4 3.2l7.2 4.8-7.2 4.8z" fill="currentColor"/></svg>',
+  pause:  S + '<path d="M4.6 3.4h2.3v9.2H4.6zM9.1 3.4h2.3v9.2H9.1z" fill="currentColor"/></svg>',
+  prev:   S + '<path d="M3.8 3.4v9.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12.6 3.4L5.6 8l7 4.6z" fill="currentColor"/></svg>',
+  next:   S + '<path d="M12.2 3.4v9.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M3.4 3.4l7 4.6-7 4.6z" fill="currentColor"/></svg>',
+  speaker:S + '<path d="M2.4 6h2.5l3.3-2.8v9.6L4.9 10H2.4z" fill="currentColor"/><path d="M10.5 5.7a3.3 3.3 0 0 1 0 4.6M12.3 3.9a5.9 5.9 0 0 1 0 8.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
+  mute:   S + '<path d="M2.4 6h2.5l3.3-2.8v9.6L4.9 10H2.4z" fill="currentColor"/><path d="M10.3 6.1l3.6 3.8M13.9 6.1l-3.6 3.8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+  r_loop: S + '<path d="M2.8 7.4v-.9a2 2 0 0 1 2-2h7.6M10.6 2.6l1.9 1.9-1.9 1.9M13.2 8.6v.9a2 2 0 0 1-2 2H3.6M5.4 13.4l-1.9-1.9 1.9-1.9" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  r_next: S + '<path d="M2.6 4.2h8M2.6 8h5.2M2.6 11.8h5.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M10 8.4l3.8 2.6L10 13.6z" fill="currentColor"/></svg>',
+  r_once: S + '<path d="M2.6 8h7.6M7.6 5.2L10.4 8l-2.8 2.8M13.2 4v8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
 };
 var CHECK  = "OK";
 
@@ -94,8 +103,10 @@ var tileW = 116;
 var token = 0;
 
 var audio = new Audio();
-var playingTile = null;
+var cur = null;          // son charge dans le lecteur -- survit aux redraw
+var playingTile = null;  // sa tuile, si elle est affichee
 var selTile = null;
+var viewTimer = null;    // ouverture differee de la visionneuse (cf. dblclick)
 
 /* -------------------------------- helpers ------------------------------ */
 
@@ -362,8 +373,11 @@ function computeView() {
 
 var io = null;
 
+/* Ne coupe PAS le son : chercher, changer de dossier ou filtrer les favoris
+   pendant qu'une musique tourne est justement le cas d'usage. tile() remet
+   le marquage sur la nouvelle tuile du son en cours si elle reapparait. */
 function redraw() {
-  stopAudio();
+  unmarkTile();
   var g = $("#grid");
   g.innerHTML = ""; rendered = 0; selTile = null;
   if (io) io.disconnect();
@@ -419,7 +433,9 @@ function tile(it) {
   var el = document.createElement("div");
   el.className = "tile";
   el.title = it.p + "\n" + human(it.sz) +
-    (it.k === "audio" ? "\n\nClic sur le visuel : lecture a partir de cet endroit" : "");
+    (it.k === "audio" ? "\n\nClic sur le visuel : lecture a partir de cet endroit" +
+                        "\nClic sur le nom : lecture / pause" : "") +
+    "\nDouble-clic : importer";
   el._it = it;
   el.setAttribute("draggable", "true");
 
@@ -458,6 +474,8 @@ function tile(it) {
   });
   add.addEventListener("click", function (ev) { ev.stopPropagation(); doImport(it); });
   el.addEventListener("click", function (ev) {
+    // 2e clic d'un double-clic : c'est un import, pas une bascule lecture/pause
+    if (ev.detail > 1) return;
     selectTile(el);
     // Clic DANS le visuel : on en tire la position de lecture (0 a 1).
     var frac = null;
@@ -465,9 +483,14 @@ function tile(it) {
       var r = th.getBoundingClientRect();
       if (r.width) frac = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
     }
-    preview(el, it, frac);
+    if (it.k === "audio") return preview(el, it, frac);
+    /* Image / video : la visionneuse (plein panneau) attend un instant. Ouverte
+       tout de suite, elle recevait le 2e clic et le double-clic n'importait
+       jamais rien. */
+    clearTimeout(viewTimer);
+    viewTimer = setTimeout(function () { preview(el, it, frac); }, 260);
   });
-  el.addEventListener("dblclick", function () { doImport(it); });
+  el.addEventListener("dblclick", function () { clearTimeout(viewTimer); doImport(it); });
 
   if (it.k === "video") {
     el.addEventListener("mouseenter", function () {
@@ -480,6 +503,7 @@ function tile(it) {
       if (el.dataset.poster) th.style.backgroundImage = "url(" + el.dataset.poster + ")";
     });
   }
+  if (cur && cur.p === it.p) markTile(el);
   return el;
 }
 
@@ -688,63 +712,208 @@ function hoverSprite(el, it) {
   });
 }
 
-/* -------------------------------- preview ------------------------------ */
+/* -------------------------------- lecteur ------------------------------ */
 
-function stopAudio() {
-  try { audio.pause(); } catch (e) {}
-  if (playingTile) {
-    var b = playingTile.querySelector(".pos"); if (b) b.remove();
-    playingTile.classList.remove("playing"); playingTile = null;
-  }
-}
+/* Barre de lecture des sons (au-dessus de la barre du bas). Le son en cours
+   est garde dans `cur`, independamment de la grille : chercher, changer de
+   dossier ou ouvrir une image ne coupe plus la musique.
 
-audio.addEventListener("timeupdate", function () {
-  if (!playingTile || !audio.duration) return;
-  var b = playingTile.querySelector(".pos");
-  if (b) b.style.width = (audio.currentTime / audio.duration * 100) + "%";
-});
-audio.addEventListener("ended", stopAudio);
+   Fin du son, au choix (bouton a droite, memorise) :
+     loop  recommence au debut -- defaut, on ecoute en boucle le temps de
+           decider au lieu de devoir relancer a chaque fin ;
+     next  enchaine le son suivant de la grille ;
+     once  s'arrete (le bouton lecture repart du debut). */
+var REPEAT = ["loop", "next", "once"];
+var REPEAT_TIP = { loop:"Fin du son : recommence (boucle)",
+                   next:"Fin du son : enchaine le son suivant",
+                   once:"Fin du son : s'arrete" };
+var repeat = "loop";
+var muted = false;
+var seeking = false;     // la barre de position est tenue a la souris
+var pendingFrac = null;  // calage demande avant que la duree soit connue
 
-/* frac : position du clic sur la forme d'onde, entre 0 et 1. On demarre la
-   lecture a cet endroit du son -- cliquer au milieu du visuel joue le milieu.
-   frac null = clic ailleurs sur la tuile : simple bascule lecture / stop. */
-function playAudio(el, it, frac) {
-  if (playingTile === el && frac == null) return stopAudio();
-  if (playingTile !== el) stopAudio();
-
+function markTile(el) {
+  if (playingTile === el) return;
+  unmarkTile();
+  if (!el) return;
   playingTile = el;
   el.classList.add("playing");
   if (!el.querySelector(".pos")) {
     var b = document.createElement("div"); b.className = "pos";
     el.querySelector(".th").appendChild(b);
   }
-  audio.volume = (+$("#vol").value) / 100;
+  syncUI();
+}
+function unmarkTile() {
+  if (!playingTile) return;
+  var b = playingTile.querySelector(".pos"); if (b) b.remove();
+  playingTile.classList.remove("playing", "paused");
+  playingTile = null;
+}
 
-  function seek() {
-    if (frac == null || !isFinite(audio.duration)) return;
-    try { audio.currentTime = frac * audio.duration; } catch (e) {}
+/* Tuile actuellement affichee pour ce fichier (comparaison par chemin : un
+   rescan recree les objets item). */
+function tileOf(it) {
+  var ts = $("#grid").children;
+  for (var i = 0; i < ts.length; i++) if (ts[i]._it && ts[i]._it.p === it.p) return ts[i];
+  return null;
+}
+
+function syncTime() {
+  var d = audio.duration, t = audio.currentTime || 0;
+  var ok = isFinite(d) && d > 0;
+  var pct = ok ? Math.min(100, t / d * 100) : 0;
+  var sk = $("#pseek");
+  if (!seeking) { sk.value = Math.round(pct * 10); sk.style.setProperty("--p", pct + "%"); }
+  $("#ptime").textContent = clock(t) + " / " + (ok ? clock(d) : "-:--");
+  if (playingTile) { var b = playingTile.querySelector(".pos"); if (b) b.style.width = pct + "%"; }
+}
+function syncUI() {
+  var on = !!cur && !audio.paused;
+  var b = $("#pplay");
+  b.innerHTML = on ? ICO.pause : ICO.play;
+  b.title = (on ? "Pause" : "Lecture") + " (Espace)";
+  if (playingTile) playingTile.classList.toggle("paused", !on);
+  syncTime();
+}
+
+function seekFrac(f) {
+  f = Math.max(0, Math.min(1, f));
+  if (!isFinite(audio.duration) || !audio.duration) { pendingFrac = f; return; }
+  try { audio.currentTime = f * audio.duration; } catch (e) {}
+  syncTime();
+}
+function nudge(sec) {
+  if (!cur || !isFinite(audio.duration)) return;
+  try { audio.currentTime = Math.max(0, Math.min(audio.duration - 0.05, audio.currentTime + sec)); } catch (e) {}
+  syncTime();
+}
+
+function resume() { if (cur) audio.play().catch(function () {}); }
+function pauseAudio() { try { audio.pause(); } catch (e) {} }
+
+/* Arret complet : on vide la source et on range le lecteur. */
+function stopAudio() {
+  audio.onerror = null;
+  pauseAudio();
+  audio.removeAttribute("src");
+  try { audio.load(); } catch (e) {}
+  cur = null; pendingFrac = null;
+  unmarkTile();
+  $("#player").classList.add("hidden");
+}
+
+function togglePlay() {
+  if (!cur) {
+    // rien de charge : le son selectionne, sinon le premier son de la grille
+    if (selTile && selTile._it && selTile._it.k === "audio") return playAudio(selTile, selTile._it, null);
+    return step(1);
   }
+  if (audio.paused) resume(); else pauseAudio();
+}
+
+/* Son precedent / suivant dans la vue courante (les non-sons sont sautes).
+   Si la tuile cible n'est pas encore rendue (pagination), on rend jusqu'a elle. */
+function step(dir) {
+  var i = -1;
+  if (cur) for (var j = 0; j < view.length; j++) if (view[j].p === cur.p) { i = j; break; }
+  for (var k = i + dir; k >= 0 && k < view.length; k += dir) {
+    if (view[k].k !== "audio") continue;
+    while (k >= rendered && rendered < view.length) renderMore();
+    var el = tileOf(view[k]);
+    if (el) { selectTile(el); el.scrollIntoView({ block:"nearest" }); }
+    playAudio(el, view[k], null);
+    return true;
+  }
+  return false;
+}
+function prev() {
+  // comme tout lecteur : au-dela de 3 s, "precedent" revient au debut du son
+  if (cur && audio.currentTime > 3) return seekFrac(0);
+  if (!step(-1) && cur) seekFrac(0);
+}
+
+function setRepeat(m) {
+  repeat = REPEAT_TIP[m] ? m : "loop";
+  audio.loop = repeat === "loop";
+  var b = $("#prep");
+  b.innerHTML = ICO["r_" + repeat];
+  b.title = REPEAT_TIP[repeat] + " - clic pour changer";
+  b.classList.toggle("lit", repeat !== "once");
+  lsSet("mudkit.lib.repeat", repeat);
+}
+
+function applyVol() {
+  var v = (+$("#vol").value) / 100;
+  audio.volume = v; audio.muted = muted;
+  var vid = $("#vbody").querySelector("video"); if (vid) { vid.volume = v; vid.muted = muted; }
+  var b = $("#pmute");
+  b.innerHTML = (muted || v === 0) ? ICO.mute : ICO.speaker;
+  b.title = muted ? "Remettre le son" : "Couper le son";
+}
+
+audio.addEventListener("timeupdate", syncTime);
+audio.addEventListener("durationchange", syncTime);
+audio.addEventListener("play", syncUI);
+audio.addEventListener("pause", syncUI);
+audio.addEventListener("loadedmetadata", function () {
+  if (pendingFrac != null) { var f = pendingFrac; pendingFrac = null; seekFrac(f); }
+  syncUI();
+});
+/* Avec loop=true "ended" ne se declenche pas : on n'arrive ici qu'en mode
+   next ou once. On ne demonte plus rien, le lecteur reste sur le son. */
+audio.addEventListener("ended", function () {
+  if (repeat === "next" && step(1)) return;
+  syncUI();
+});
+
+/* frac : position du clic sur la forme d'onde, entre 0 et 1. On demarre la
+   lecture a cet endroit du son -- cliquer au milieu du visuel joue le milieu.
+   frac null = clic ailleurs sur la tuile : lecture / pause (on garde la
+   position, on ne repart plus du debut). */
+function playAudio(el, it, frac) {
+  $("#player").classList.remove("hidden");
+
+  if (cur && cur.p === it.p) {                 // meme son
+    markTile(el || tileOf(it));
+    if (frac != null) { seekFrac(frac); resume(); }
+    else if (audio.paused) resume(); else pauseAudio();
+    return;
+  }
+
+  cur = it; pendingFrac = frac;
+  markTile(el || tileOf(it));
+  $("#pname").textContent = it.n.replace(/\.[^.]+$/, "");
+  $("#pname").title = it.p;
+  audio.onerror = null;
+  pauseAudio();
+  syncUI();
+
   function start(src) {
-    // currentTime n'est reglable qu'une fois la duree connue
-    if (audio.src !== src) audio.src = src;
-    if (audio.readyState >= 1) seek();
-    else audio.addEventListener("loadedmetadata", function once() {
-      audio.removeEventListener("loadedmetadata", once); seek();
-    });
+    if (cur !== it) return;                    // on est passe a un autre son entre-temps
+    audio.src = src;                           // currentTime sera cale sur loadedmetadata
     audio.play().catch(function () {});
   }
-
-  if (WEB_AUDIO[it.e]) { audio.onerror = function () { transcode(); }; start(fileUrl(it.p)); }
-  else transcode();
-
   function transcode() {
     audio.onerror = null;
     var pv = cachePath("pv", keyOf(it), ".mp3");
     if (fs.existsSync(pv)) return start(fileUrl(pv));
     say("Conversion pour l'ecoute (" + it.e + ")...");
-    run(FFMPEG, ["-v","error","-i",it.p,"-vn","-ac","2","-b:a","192k","-y",pv],
-      function (err) { if (!err && fs.existsSync(pv) && playingTile === el) start(fileUrl(pv)); });
+    /* Fichier temporaire puis renommage : une conversion interrompue ne
+       laisse pas un mp3 tronque que le cache servirait ensuite pour toujours.
+       first:true -- sinon l'ecoute attendait derriere toutes les vignettes. */
+    var tmp = pv.replace(/\.mp3$/, ".part.mp3");
+    run(FFMPEG, ["-v","error","-i",it.p,"-vn","-ac","2","-b:a","192k","-y",tmp],
+      function (err) {
+        if (!err) { try { fs.renameSync(tmp, pv); } catch (e) { err = String(e); } }
+        if (cur !== it) return;
+        if (!err && fs.existsSync(pv)) { countLine(); start(fileUrl(pv)); }
+        else say("Lecture impossible pour " + it.n, "err");
+      }, { first:true });
   }
+
+  if (WEB_AUDIO[it.e]) { audio.onerror = transcode; start(fileUrl(it.p)); }
+  else transcode();
 }
 
 var viewerItem = null;
@@ -761,9 +930,10 @@ function openViewer(it) {
       if (fs.existsSync(big)) im2.src = fileUrl(big);
       else run(FFMPEG, ["-v","error","-i",it.p,"-frames:v","1","-vf","scale='min(1600,iw)':-1","-q:v","3","-y",big],
         function (err) {
+          if (viewerItem !== it) return;     // visionneuse fermee ou autre media entre-temps
           if (!err && fs.existsSync(big)) im2.src = fileUrl(big);
           else body.innerHTML = '<div class="vmsg">Apercu impossible pour ce format (' + it.e + ').<br>Le fichier reste importable.</div>';
-        });
+        }, { first:true });
     }
     return;
   }
@@ -771,7 +941,14 @@ function openViewer(it) {
     if (WEB_VIDEO[it.e]) {
       var v = document.createElement("video");
       v.src = fileUrl(it.p); v.controls = true; v.autoplay = true; v.loop = true;
-      v.volume = (+$("#vol").value) / 100;
+      v.volume = (+$("#vol").value) / 100; v.muted = muted;
+      // le volume regle dans les controles de la video devient le volume general
+      v.addEventListener("volumechange", function () {
+        $("#vol").value = Math.round(v.volume * 100); muted = v.muted;
+        audio.volume = v.volume; audio.muted = muted;
+        lsSet("mudkit.lib.vol", $("#vol").value);
+        var b = $("#pmute"); b.innerHTML = (muted || !v.volume) ? ICO.mute : ICO.speaker;
+      });
       v.onerror = function () { body.innerHTML = '<div class="vmsg">Codec non lisible par Chromium.<br>Survole la vignette pour scruber, ou glisse-le sur la timeline.</div>'; };
       body.appendChild(v);
     } else body.innerHTML = '<div class="vmsg">Format conteneur non lisible ici (' + it.e + ').<br>Survole la vignette pour scruber les images.</div>';
@@ -787,9 +964,14 @@ function selectTile(el) {
   selTile = el; el.classList.add("sel");
 }
 
+/* Une image se regarde par-dessus la musique ; une video a son propre son,
+   donc on met le lecteur en PAUSE (pas a l'arret : il reprend ou il etait). */
 function preview(el, it, frac) {
   if (it.k === "audio") return playAudio(el, it, frac);
-  stopAudio(); openViewer(it);
+  // MOGRT : rien a montrer, plutot qu'une visionneuse vide
+  if (it.k === "mogrt") return say("Modele d'animation : double-clic ou + pour le poser sur la timeline.");
+  if (it.k === "video") pauseAudio();
+  openViewer(it);
 }
 
 /* --------------------------------- import ------------------------------ */
@@ -890,10 +1072,41 @@ $("#size").addEventListener("input", function (e) {
   lsSet("mudkit.lib.tilew", String(tileW));
 });
 
+/* lecteur */
 $("#vol").addEventListener("input", function (e) {
-  audio.volume = (+e.target.value) / 100;
-  var v = $("#vbody").querySelector("video"); if (v) v.volume = audio.volume;
+  muted = false;                       // bouger le volume = vouloir entendre
+  applyVol();
   lsSet("mudkit.lib.vol", e.target.value);
+});
+$("#vol").addEventListener("wheel", function (e) {
+  e.preventDefault();
+  var v = Math.max(0, Math.min(100, (+this.value) + (e.deltaY < 0 ? 5 : -5)));
+  this.value = v; muted = false; applyVol();
+  lsSet("mudkit.lib.vol", String(v));
+});
+$("#pmute").addEventListener("click", function () { muted = !muted; applyVol(); });
+$("#pplay").addEventListener("click", togglePlay);
+$("#pprev").addEventListener("click", prev);
+$("#pnext").addEventListener("click", function () { step(1); });
+$("#pclose").addEventListener("click", stopAudio);
+$("#prep").addEventListener("click", function () {
+  setRepeat(REPEAT[(REPEAT.indexOf(repeat) + 1) % REPEAT.length]);
+  say(REPEAT_TIP[repeat], "ok");
+});
+/* Glisser la barre = on entend ou on va. `seeking` empeche timeupdate de
+   ramener le curseur sous la souris pendant le geste. */
+$("#pseek").addEventListener("input", function () {
+  seeking = true;
+  this.style.setProperty("--p", (this.value / 10) + "%");
+  if (cur) seekFrac(this.value / 1000);
+});
+$("#pseek").addEventListener("change", function () { seeking = false; syncTime(); });
+$("#pprev").innerHTML = ICO.prev;
+$("#pnext").innerHTML = ICO.next;
+/* Les boutons du lecteur ne prennent pas le focus : sinon Espace, au lieu
+   de lecture/pause, re-cliquerait le dernier bouton touche. */
+document.querySelectorAll("#player button").forEach(function (b) {
+  b.addEventListener("mousedown", function (e) { e.preventDefault(); });
 });
 
 $("#vclose").addEventListener("click", closeViewer);
@@ -928,12 +1141,31 @@ $("#dl").addEventListener("click", function () { $("#dloverlay").classList.add("
 $("#dlclose").addEventListener("click", function () { $("#dloverlay").classList.remove("on"); });
 $("#dloverlay").addEventListener("click", function (e) { if (e.target === this) this.classList.remove("on"); });
 
+/* Clavier : Echap ferme / met en pause, Espace = lecture/pause,
+   fleches gauche/droite = -5 s / +5 s. Jamais pendant une saisie de texte. */
 document.addEventListener("keydown", function (e) {
-  if (e.key !== "Escape") return;
-  if ($("#dloverlay").classList.contains("on")) return $("#dloverlay").classList.remove("on");
-  if ($("#viewer").classList.contains("on")) return closeViewer();
-  stopAudio();
+  if (e.key === "Escape") {
+    if ($("#dloverlay").classList.contains("on")) return $("#dloverlay").classList.remove("on");
+    if ($("#viewer").classList.contains("on")) return closeViewer();
+    return pauseAudio();
+  }
+  var t = e.target, tag = t && t.tagName;
+  if (tag === "TEXTAREA" || (tag === "INPUT" && t.type === "text")) return;
+  if ($("#dloverlay").classList.contains("on") || $("#viewer").classList.contains("on")) return;
+  if (e.key === " " || e.key === "Spacebar") { e.preventDefault(); togglePlay(); }
+  // fleches : -5 s / +5 s, y compris sur la barre de position (sinon elle
+  // avancerait d'un millieme de la duree) ; le volume garde ses fleches
+  else if ((tag !== "INPUT" || t.id === "pseek") && e.key === "ArrowLeft")  { e.preventDefault(); nudge(-5); }
+  else if ((tag !== "INPUT" || t.id === "pseek") && e.key === "ArrowRight") { e.preventDefault(); nudge(5); }
 });
+
+/* Sans ca, Premiere recoit aussi Espace et les fleches quand le panneau a le
+   focus (lecture de la timeline en plus de celle du son). Codes touches
+   Windows : 32 Espace, 37 gauche, 39 droite. */
+try {
+  if (window.__adobe_cep__ && window.__adobe_cep__.registerKeyEventsInterest)
+    window.__adobe_cep__.registerKeyEventsInterest(JSON.stringify([{ keyCode:32 }, { keyCode:37 }, { keyCode:39 }]));
+} catch (e) {}
 
 /* -------------------------------- demarrage ---------------------------- */
 
@@ -952,7 +1184,9 @@ if (!nodeReq) {
   document.documentElement.style.setProperty("--tw", tileW + "px");
   $("#size").value = tileW;
   $("#vol").value = ls("mudkit.lib.vol", "70");
-  audio.volume = (+$("#vol").value) / 100;
+  applyVol();
+  setRepeat(ls("mudkit.lib.repeat", "loop"));
+  syncUI();
   $("#side").style.width = (+ls("mudkit.lib.sidew", "168") || 168) + "px";
   $("#favfilter").classList.toggle("on", favOnly);
   document.querySelectorAll("#libact button").forEach(function (b) { b.classList.toggle("on", b.dataset.v === action); });
