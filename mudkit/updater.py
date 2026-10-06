@@ -314,7 +314,7 @@ def ensure_cep_debug():
     couvrait que CEP 9 a 16 ; une future version de Premiere (CEP 17+)
     l'aurait refuse sans message. On complete donc jusqu'a CEP 25 a chaque
     demarrage (cles utilisateur, sans droits administrateur)."""
-    if sys.platform != "win32":
+    if sys.platform != "win32" or is_dev():  # PC de dev : cles gerees a la main
         return
     import winreg
     for v in range(9, 26):

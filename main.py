@@ -195,11 +195,23 @@ def _single_instance():
     if "--restart" in sys.argv:
         k32.WaitForSingleObject(_instance_mutex, 20000)  # l'ancien se ferme
         return True
-    user32.FindWindowW.restype = wintypes.HWND
-    hwnd = user32.FindWindowW(None, "Mudkit")
-    if hwnd:
-        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-        user32.SetForegroundWindow(hwnd)
+    # La fenetre Mudkit deja ouverte (classe WinForms : un Explorateur
+    # ouvert sur Videos\Mudkit porte le meme titre). Aucune : l'autre
+    # processus est un reste bloque sans fenetre, on demarre quand meme.
+    user32.FindWindowExW.restype = wintypes.HWND
+    user32.FindWindowExW.argtypes = [wintypes.HWND, wintypes.HWND,
+                                     wintypes.LPCWSTR, wintypes.LPCWSTR]
+    cls = ctypes.create_unicode_buffer(64)
+    hwnd = None
+    while True:
+        hwnd = user32.FindWindowExW(None, hwnd, None, "Mudkit")
+        if not hwnd:
+            return True
+        user32.GetClassNameW(hwnd, cls, 64)
+        if cls.value.startswith("WindowsForms"):
+            break
+    user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+    user32.SetForegroundWindow(hwnd)
     return False
 
 
