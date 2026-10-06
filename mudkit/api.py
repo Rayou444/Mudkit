@@ -230,6 +230,9 @@ class Api:
         arriere-plan apres la fermeture."""
         for task in list(self._busy):
             self._cancel[task] = True
+        worker = getattr(self, "_cutout_proc", None)
+        if worker is not None and worker.poll() is None:
+            utils.kill_tree(worker.pid)   # processus de detourage (Python)
         try:
             n = utils.kill_tool_children()
             if n:
@@ -528,40 +531,90 @@ class Api:
     # ---------------------------------------------------------- detourage
 
     def start_cutout(self, opts):
-        files, model = opts["files"], opts["model"]
+        """Detourage dans un processus a part (cutout_worker) : annuler le
+        tue aussitot (avant, il fallait attendre la fin de l'image), la
+        memoire du modele (~1 Go) est rendue a la fin, et un souci de pilote
+        graphique ne fait pas tomber l'appli."""
+        files, model = opts["files"], cutout.key_of(opts.get("model"))
+        gpu = bool(opts.get("gpu")) and model not in cutout.NO_GPU
+        utils.update_config(cutout_gpu=bool(opts.get("gpu")))
+        job_json = json.dumps({"files": files, "model": model, "gpu": gpu,
+                               "crop": bool(opts.get("crop"))})
 
         def job():
-            ok = 0
-            for i, src in enumerate(files):
-                emit_model = _throttle(lambda pct, _, i=i: self._emit(
-                    {"type": "bg_progress", "index": i, "phase": "model",
-                     "pct": pct}))
+            ok, seen, err_tail = 0, set(), []
+            proc = self._cutout_proc = cutout.spawn_worker(job_json)
+            stop = threading.Event()
 
-                def on_phase(phase, pct, i=i, emit_model=emit_model):
-                    if phase == "model" and pct is not None:
-                        emit_model(pct, 1.0)  # telechargement du modele
-                    else:
-                        self._emit({"type": "bg_progress", "index": i,
-                                    "phase": phase, "pct": pct})
-                try:
-                    out = cutout.cutout_one(
-                        src, model, on_phase,
-                        lambda: self._cancelled("cutout"))
-                    ok += 1
-                    self._emit({"type": "bg_file_done", "index": i,
-                                "ok": True, "out": out})
-                except utils.CancelledError:
-                    self._emit({"type": "bg_done", "ok": ok,
-                                "total": len(files), "cancelled": True})
-                    return
-                except Exception as e:  # noqa: BLE001
-                    self._emit({"type": "bg_file_done", "index": i,
-                                "ok": False,
-                                "error": self._err(e, f"detourage {src}")})
-            self._emit({"type": "bg_done", "ok": ok, "total": len(files)})
-            cutout.release()  # le modele (~1 Go) ne reste pas en memoire
+            def watch():   # annulation : on tue le processus et ses enfants
+                while not stop.wait(0.2):
+                    if self._cancelled("cutout") and proc.poll() is None:
+                        utils.kill_tree(proc.pid)
+                        return
+            threading.Thread(target=watch, daemon=True).start()
+
+            def drain():   # stderr lu a part : un tampon plein bloquerait
+                for line in proc.stderr:
+                    err_tail.append(line.decode("utf-8", "replace"))
+                    del err_tail[:-30]
+            threading.Thread(target=drain, daemon=True).start()
+            try:
+                for raw in proc.stdout:
+                    try:
+                        e = json.loads(raw)
+                    except ValueError:
+                        continue
+                    if "note" in e:
+                        log.warning("detourage : %s", e["note"])
+                    elif "ok" in e:
+                        seen.add(e["i"])
+                        if e["ok"]:
+                            ok += 1
+                            log.info("detoure %s en %s s (%s)", files[e["i"]], e.get("secs"),
+                                     "carte graphique" if e.get("gpu") else "processeur")
+                            self._emit({"type": "bg_file_done", "index": e["i"],
+                                        "ok": True, "out": e["out"],
+                                        "gpu": e.get("gpu", False)})
+                        else:
+                            log.error("detourage %s : %s %s", files[e["i"]],
+                                      e.get("error"), e.get("detail", ""))
+                            self._emit({"type": "bg_file_done", "index": e["i"],
+                                        "ok": False, "error": e.get("error")})
+                    elif "phase" in e:
+                        self._emit({"type": "bg_progress", "index": e["i"],
+                                    "phase": e["phase"], "pct": e.get("pct")})
+                proc.wait()
+            finally:
+                stop.set()
+            if self._cancelled("cutout"):
+                return {"type": "bg_done", "ok": ok, "total": len(files),
+                        "cancelled": True}
+            if proc.returncode != 0:
+                # processus tombe (memoire, pilote) : les images restantes
+                # sont marquees en erreur au lieu de rester « en cours »
+                why = "".join(err_tail).strip().splitlines()
+                log.error("processus de detourage tombe (code %s) : %s",
+                          proc.returncode, "".join(err_tail))
+                msg = ("le détourage s'est arrêté"
+                       + (f" : {why[-1][:200]}" if why else f" (code {proc.returncode})"))
+                for i in range(len(files)):
+                    if i not in seen:
+                        self._emit({"type": "bg_file_done", "index": i,
+                                    "ok": False, "error": msg})
+            return {"type": "bg_done", "ok": ok, "total": len(files)}
         return self._spawn("cutout", job, crash={
             "type": "bg_done", "ok": 0, "total": len(files)})
+
+    def cutout_setup(self):
+        """Etat du detourage pour l'interface : modeles deja telecharges et
+        carte graphique utilisable (dernier choix memorise, sinon oui des
+        qu'une vraie carte graphique est la)."""
+        name = cutout.gpu_name()
+        cfg = utils.load_config()
+        return {"gpu_name": name,
+                "gpu": bool(cfg.get("cutout_gpu", bool(name))) and bool(name),
+                "gpu_ready": cutout.gpu_runtime_ready(),
+                "cached": {k: cutout.model_cached(k) for k in cutout.MODELS}}
 
     # -------------------------------------------------------- compresseur
 

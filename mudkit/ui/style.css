@@ -627,6 +627,10 @@ html:not([data-theme="dark"]) .theme-btn .ic-sun { display: none; }
 .model .tag { background: var(--accent-soft); color: var(--accent-text); }
 .model.on .tag { background: var(--accent); color: #FFF; }
 .model:disabled { opacity: .4; cursor: default; }
+.model .msize { opacity: .75; }
+.model .msize::before { content: " · " attr(data-size) " à télécharger une fois"; }
+.model .msize.ready::before { content: " · prêt"; }
+#bg-gpu-row.dim { opacity: .45; }
 
 /* ---------------- zone de travail ---------------- */
 

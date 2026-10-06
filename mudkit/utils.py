@@ -204,6 +204,15 @@ def run_ffmpeg(cmd, on_time=None, is_cancelled=None, partial=None):
 TOOL_EXES = {"ffmpeg.exe", "ffprobe.exe", "realesrgan-ncnn-vulkan.exe"}
 
 
+def kill_tree(pid):
+    """Arrete un processus et tous ses enfants (le Python d'un venv passe par
+    un lanceur : tuer le lanceur seul laissait tourner le vrai processus)."""
+    try:
+        run_hidden(["taskkill", "/PID", str(pid), "/T", "/F"], timeout=15)
+    except Exception:  # noqa: BLE001 - deja termine
+        pass
+
+
 def kill_tool_children():
     """Tue les ffmpeg / ffprobe / Real-ESRGAN lances par CE processus (par
     Mudkit ou par yt-dlp pour une fusion). Appele a la fermeture : avant, ils

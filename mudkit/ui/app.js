@@ -64,7 +64,8 @@ const S = {
         dest: "", queue: [], current: null, lastInfo: null,
         sec: { on: false, dur: 0, a: 0, b: 0 } },
   cp: { files: [], target: 25, running: false },
-  bg: { files: [], model: "best", running: false, sel: null, results: {} },
+  bg: { files: [], model: "hair", crop: false, gpu: false, running: false,
+        sel: null, results: {} },
   up: { files: [], model: null, scale: 4, format: "png", running: false,
         sel: null, results: {}, scaleUsed: 4 },
   cv: { files: [], target: null, running: false },
@@ -1290,10 +1291,15 @@ function wireCutout() {
   $("#bg-models").addEventListener("click", (e) => {
     const btn = e.target.closest(".model");
     if (!btn) return;
-    $$("#bg-models .model").forEach((b) => b.classList.remove("on"));
-    btn.classList.add("on");
-    S.bg.model = btn.dataset.v;
+    bgPickModel(btn.dataset.v);
+    savePrefs();
   });
+  $("#bg-crop").addEventListener("change", (e) => {
+    S.bg.crop = e.target.checked;
+    savePrefs();
+  });
+  $("#bg-gpu").addEventListener("change", (e) => { S.bg.gpu = e.target.checked; });
+  bgSetup();
 
   $("#btn-bg").addEventListener("click", async () => {
     if (!S.bg.files.length)
@@ -1304,25 +1310,62 @@ function wireCutout() {
     $("#btn-bg-cancel").classList.remove("hidden");
     const ok = await api("start_cutout", {
       files: S.bg.files.map((f) => f.path),
-      model: S.bg.model,
+      model: S.bg.model, crop: S.bg.crop, gpu: S.bg.gpu,
     });
     if (!ok) stopRunning(S.bg, "#btn-bg", "#btn-bg-cancel");
   });
   $("#btn-bg-cancel").addEventListener("click", () => {
     api("cancel", "cutout");
-    toast("Annulation après l'image en cours…");
+    toast("Détourage annulé.");
   });
 
   wireCmpDrag($("#bg-cmp"));
 }
 
 let bgModelToastShown = false;
+let bgGpuToastShown = false;
+
+function bgPickModel(v) {
+  const b = $(`#bg-models .model[data-v="${v}"]`);
+  if (!b) return false;
+  $$("#bg-models .model").forEach((x) => x.classList.toggle("on", x === b));
+  S.bg.model = v;
+  // le modele HD ne tient pas sur la carte graphique (DirectML)
+  $("#bg-gpu-row").classList.toggle("dim", v === "hd");
+  return true;
+}
+
+/* Modeles deja telecharges (« pret ») et carte graphique disponible. */
+async function bgSetup() {
+  const st = await api("cutout_setup");
+  if (!st) return;
+  $$("#bg-models .model").forEach((b) => {
+    const m = b.querySelector(".msize");
+    if (m) m.classList.toggle("ready", !!(st.cached || {})[b.dataset.v]);
+  });
+  if (st.gpu_name) {
+    $("#bg-gpu-row").classList.remove("hidden");
+    $("#bg-gpu").checked = S.bg.gpu = !!st.gpu;
+    $("#bg-gpu-label").textContent = "Carte graphique ("
+      + st.gpu_name.replace(/^(NVIDIA|AMD)\s+|GeForce\s+|Radeon\s+/gi, "") + ")";
+    $("#bg-gpu-row").title = "3 à 5 fois plus rapide qu'au processeur"
+      + (st.gpu_ready ? "." : ". Module de 25 Mo téléchargé à la 1re utilisation.");
+  }
+}
 
 function onBgEvent(e) {
   const chips = $$("#bg-files .fchip");
   if (e.type === "bg_progress" && chips[e.index]) {
     const chip = chips[e.index];
-    if (e.phase === "model") {
+    if (e.phase === "gpu") {
+      // 1re utilisation de la carte graphique : module DirectML (25 Mo)
+      chip.querySelector(".fstate").innerHTML = e.pct != null
+        ? `${(e.pct * 100).toFixed(0)}%` : `<span class="spin"></span>`;
+      if (!bgGpuToastShown) {
+        bgGpuToastShown = true;
+        toast("Installation du module carte graphique (25 Mo, une seule fois).", "info", 6000);
+      }
+    } else if (e.phase === "model") {
       // premier usage du modele : vrai pourcentage de telechargement
       chip.querySelector(".fstate").innerHTML = e.pct != null
         ? `${(e.pct * 100).toFixed(0)}%` : `<span class="spin"></span>`;
@@ -1347,6 +1390,8 @@ function onBgEvent(e) {
         S.bg.results[f.path] = e.out;
         if (S.bg.sel === f.path) bgStage();
       }
+      const m = $(`#bg-models .model[data-v="${S.bg.model}"] .msize`);
+      if (m) m.classList.add("ready");
     } else {
       chips[e.index].querySelector(".fstate").innerHTML =
         `<span class="st-err" title="${esc(e.error)}">✕</span>`;
@@ -1832,6 +1877,9 @@ function mockApi(method, ...args) {
       return delay(mockImage(/\dx_/.test(args[0])), 300);
     case "preview_png":
       return delay(mockImage(true), 300);
+    case "cutout_setup":
+      return delay({ gpu_name: "NVIDIA GeForce RTX (démo)", gpu: true,
+                     gpu_ready: false, cached: { best: true, fast: true } });
     case "start_cutout": {
       const files = args[0].files;
       files.forEach((p, i) => {
@@ -1907,6 +1955,7 @@ function savePrefs() {
     dl_vformat: S.dl.vformat, dl_aformat: S.dl.aformat,
     cp_target: S.cp.target,
     up_scale: S.up.scale, up_format: S.up.format, up_model: S.up.model,
+    bg_model: S.bg.model, bg_crop: S.bg.crop,
   }), 400);
 }
 
@@ -1930,6 +1979,8 @@ function restorePrefs(p) {
   if (pick("#pills-scale", p.up_scale)) S.up.scale = +p.up_scale;
   if (pick("#pills-upformat", p.up_format)) S.up.format = p.up_format;
   if (p.up_model) S.up.model = p.up_model;   // garde par renderModels s'il est installe
+  if (p.bg_model) bgPickModel(p.bg_model === "portrait" ? "hair" : p.bg_model);
+  if (p.bg_crop != null) $("#bg-crop").checked = S.bg.crop = !!p.bg_crop;
 }
 
 /* ---------------- demarrage ---------------- */

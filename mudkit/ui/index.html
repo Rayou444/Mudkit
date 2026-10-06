@@ -158,7 +158,7 @@
       <div class="page-head" data-wm="DÉTOURER">
         <div>
           <h1>Détourage</h1>
-          <p>Supprime l'arrière-plan par IA, en local. Sortie en PNG transparent.</p>
+          <p>Supprime l'arrière-plan par IA, en local. PNG transparent, couleurs des bords corrigées.</p>
         </div>
       </div>
       <div class="page-body">
@@ -176,22 +176,35 @@
 
           <div class="step">
             <div class="step-head"><span class="step-num">2</span>
-              <span class="step-title">Modèle</span></div>
+              <span class="step-title">Sujet</span></div>
             <div class="models" id="bg-models">
-              <button class="model on" data-v="best">
-                <span class="mname">BiRefNet (qualité max)</span>
-                <span class="mdesc">photos, objets, cheveux et détails fins
-                  (~930 Mo téléchargés au 1er usage)</span>
+              <button class="model on" data-v="hair">
+                <span class="mname">Personnes &amp; animaux</span>
+                <span class="mdesc">cheveux, poils, flou : les bords les plus fins<span class="msize" data-size="930 Mo"></span></span>
               </button>
-              <button class="model" data-v="portrait">
-                <span class="mname">BiRefNet Portrait</span>
-                <span class="mdesc">optimisé visages et personnes (~930 Mo)</span>
+              <button class="model" data-v="best">
+                <span class="mname">Objets &amp; scènes</span>
+                <span class="mdesc">produits, voitures, plusieurs objets : contours nets<span class="msize" data-size="930 Mo"></span></span>
+              </button>
+              <button class="model" data-v="hd">
+                <span class="mname">Haute définition</span>
+                <span class="mdesc">grandes photos, détails très fins, 4 fois plus lent<span class="msize" data-size="1 Go"></span></span>
               </button>
               <button class="model" data-v="fast">
-                <span class="mname">Rapide (IS-Net)</span>
-                <span class="mdesc">léger et rapide, qualité correcte (~180 Mo)</span>
+                <span class="mname">Rapide</span>
+                <span class="mdesc">léger, qualité correcte<span class="msize" data-size="180 Mo"></span></span>
               </button>
             </div>
+            <label class="check-row">
+              <input type="checkbox" id="bg-crop">
+              <span class="box"></span>
+              Recadrer au sujet
+            </label>
+            <label class="check-row hidden" id="bg-gpu-row">
+              <input type="checkbox" id="bg-gpu">
+              <span class="box"></span>
+              <span id="bg-gpu-label">Carte graphique</span>
+            </label>
           </div>
 
           <div class="cta-block">
